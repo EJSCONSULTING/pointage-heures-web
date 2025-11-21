@@ -352,7 +352,8 @@ def main():
                 else:
                     add_or_reactivate_client(new_client.strip())
                     st.success(f"Client « {new_client.strip()} » enregistré / réactivé.")
-                    st.experimental_rerun()
+                    st.rerun()
+
 
         with col_c2:
             df_clients = load_all_clients()
@@ -380,7 +381,8 @@ def main():
                 else:
                     upsert_task(new_task_name.strip(), float(new_task_rate))
                     st.success(f"Tâche « {new_task_name.strip()} » enregistrée / mise à jour.")
-                    st.experimental_rerun()
+                    st.rerun()
+
 
         with col_t2:
             df_tasks = load_all_tasks()
