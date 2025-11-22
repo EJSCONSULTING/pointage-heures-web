@@ -419,7 +419,61 @@ def main():
     # Onglet HISTORIQUE + FILTRES
     # ==========================
 
-           if not df.empty:
+    with tab_historique:
+        st.subheader("Historique des prestations et filtres")
+
+        # Par défaut, on n'affiche que les non facturées
+        include_invoiced = st.checkbox(
+            "Inclure les prestations déjà facturées (archivées)",
+            value=False,
+        )
+
+        invoiced_filter = None if include_invoiced else False
+
+        df_all = load_prestations_filtered(invoiced=invoiced_filter)
+
+        providers = ["(Tous)"] + sorted(df_all["Prestataire"].dropna().unique().tolist())
+        clients_f = ["(Tous)"] + sorted(df_all["Client"].dropna().unique().tolist())
+        tasks_f = ["(Tous)"] + sorted(df_all["Tâche"].dropna().unique().tolist())
+
+        col_f1, col_f2, col_f3 = st.columns(3)
+
+        with col_f1:
+            f_provider = st.selectbox("Prestataire", options=providers)
+        with col_f2:
+            f_client = st.selectbox("Client", options=clients_f)
+        with col_f3:
+            f_task = st.selectbox("Tâche", options=tasks_f)
+
+        col_f4, col_f5 = st.columns(2)
+        with col_f4:
+            f_start_date = st.date_input(
+                "Date début (filtre)",
+                value=date.today(),
+                key="filter_start",
+            )
+        with col_f5:
+            f_end_date = st.date_input(
+                "Date fin (filtre)",
+                value=date.today(),
+                key="filter_end",
+            )
+
+        if st.button("Appliquer les filtres"):
+            df = load_prestations_filtered(
+                provider=f_provider,
+                client=f_client,
+                task=f_task,
+                start_date=f_start_date,
+                end_date=f_end_date,
+                invoiced=invoiced_filter,
+            )
+        else:
+            df = df_all
+
+        st.write(f"{len(df)} prestation(s) trouvée(s).")
+
+        if not df.empty:
             st.dataframe(df, use_container_width=True)
 
             total_global = df["Total €"].sum()
@@ -445,9 +499,101 @@ def main():
                 file_name="prestations_filtrees.csv",
                 mime="text/csv",
             )
+
+            st.markdown("---")
+            st.subheader("Modifier une prestation")
+
+            # Choix de la prestation à modifier
+            labels_edit = {}
+            for _, row in df.iterrows():
+                rid = row["ID"]
+                labels_edit[rid] = (
+                    f"{row['Début']} – {row['Client']} – "
+                    f"{row['Tâche']} – {row['Heures']:.2f} h – {row['Total €']:.2f} €"
+                )
+
+            edit_id = st.selectbox(
+                "Sélectionnez la prestation à modifier",
+                options=df["ID"].tolist(),
+                format_func=lambda x: labels_edit.get(x, str(x)),
+                key="edit_prestation_id",
+            )
+
+            row_edit = df[df["ID"] == edit_id].iloc[0]
+
+            col_e1, col_e2 = st.columns(2)
+
+            with col_e1:
+                provider_edit = st.text_input(
+                    "Prestataire",
+                    value=row_edit["Prestataire"],
+                    key="edit_provider",
+                )
+
+                clients_all = load_clients()
+                tasks_all = load_tasks()
+
+                # index du client actuel
+                try:
+                    idx_client = clients_all.index(row_edit["Client"])
+                except ValueError:
+                    idx_client = 0
+
+                client_edit = st.selectbox(
+                    "Client",
+                    options=clients_all,
+                    index=idx_client if clients_all else 0,
+                    key="edit_client",
+                )
+
+                task_names = list(tasks_all.keys())
+                try:
+                    idx_task = task_names.index(row_edit["Tâche"])
+                except ValueError:
+                    idx_task = 0
+
+                task_edit = st.selectbox(
+                    "Tâche",
+                    options=task_names,
+                    index=idx_task if task_names else 0,
+                    key="edit_task",
+                )
+
+            with col_e2:
+                description_edit = st.text_area(
+                    "Description",
+                    value=row_edit["Description"],
+                    key="edit_description",
+                )
+
+                rate_edit = st.number_input(
+                    "Tarif horaire (€ / h)",
+                    min_value=0.0,
+                    step=1.0,
+                    value=float(row_edit["Tarif €/h"]),
+                    key="edit_rate",
+                )
+
+            if st.button("Enregistrer les modifications", key="btn_edit_save"):
+                hours = float(row_edit["Heures"])
+                new_total = round(hours * float(rate_edit), 2)
+
+                update_prestation_basic(
+                    p_id=edit_id,
+                    provider=provider_edit,
+                    client=client_edit,
+                    task=task_edit,
+                    description=description_edit,
+                    rate=float(rate_edit),
+                    total=new_total,
+                )
+
+                st.success("Prestation mise à jour avec succès.")
+                st.cache_data.clear()
+                st.rerun()
+
         else:
             st.warning("Aucune prestation trouvée avec ces filtres.")
-
 
     # ==========================
     # Onglet FACTURATION / ARCHIVAGE
@@ -498,7 +644,6 @@ def main():
         else:
             st.write(f"{len(df_to_invoice)} prestation(s) non facturée(s) trouvée(s).")
 
-            # Préparer des labels lisibles pour la sélection
             labels = {}
             for _, row in df_to_invoice.iterrows():
                 rid = row["ID"]
@@ -601,6 +746,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
