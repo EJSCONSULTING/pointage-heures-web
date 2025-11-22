@@ -11,9 +11,21 @@ import streamlit as st
 # ==========================
 
 def get_connection():
-    # On utilise l'URL complète fournie par Supabase
-    db_url = st.secrets["DATABASE_URL"]
-    return psycopg2.connect(db_url, sslmode="require")
+    try:
+        return psycopg2.connect(
+            host=st.secrets["DB_HOST"],
+            port=st.secrets.get("DB_PORT", "5432"),
+            dbname=st.secrets["DB_NAME"],
+            user=st.secrets["DB_USER"],
+            password=st.secrets["DB_PASSWORD"],
+            sslmode="require",
+        )
+    except Exception as e:
+        # Debug lisible si ça casse encore
+        st.error("Erreur de connexion à la base de données.")
+        st.exception(e)
+        raise
+
 
 
 # ==========================
@@ -443,4 +455,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
