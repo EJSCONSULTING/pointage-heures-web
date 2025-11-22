@@ -182,6 +182,26 @@ def mark_prestations_invoiced(ids, invoice_ref: str | None):
         conn.commit()
 
 
+def update_prestation_basic(p_id, provider, client, task, description, rate, total):
+    """Met à jour les infos principales d'une prestation (sans changer les heures/dates)."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE prestations
+                SET provider = %s,
+                    client = %s,
+                    task = %s,
+                    description = %s,
+                    rate = %s,
+                    total = %s
+                WHERE id = %s
+                """,
+                (provider, client, task, description, rate, total, p_id),
+            )
+        conn.commit()
+
+
 # ==========================
 # Historique + filtres
 # ==========================
@@ -634,6 +654,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
