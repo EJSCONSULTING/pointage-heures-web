@@ -590,10 +590,9 @@ def main():
 
                 st.success("Prestation mise à jour avec succès.")
                 st.cache_data.clear()
-                st.rerun()
 
-        else:
-            st.warning("Aucune prestation trouvée avec ces filtres.")
+            else:
+                st.warning("Aucune prestation trouvée avec ces filtres.")
 
     # ==========================
     # Onglet FACTURATION / ARCHIVAGE
@@ -679,7 +678,7 @@ def main():
                         f"{len(selected_ids)} prestation(s) marquée(s) comme facturées."
                     )
                     st.cache_data.clear()
-                    st.rerun()
+
 
     # ==========================
     # Onglet GESTION CLIENTS / TÂCHES
@@ -699,8 +698,7 @@ def main():
                     add_or_reactivate_client(new_client.strip())
                     st.success(f"Client « {new_client.strip()} » enregistré / réactivé.")
                     st.cache_data.clear()
-                    st.rerun()
-
+                    
         with col_c2:
             df_clients = load_all_clients()
             if not df_clients.empty:
@@ -733,8 +731,7 @@ def main():
                     upsert_task(new_task_name.strip(), float(new_task_rate))
                     st.success(f"Tâche « {new_task_name.strip()} » enregistrée / mise à jour.")
                     st.cache_data.clear()
-                    st.rerun()
-
+                    
         with col_t2:
             df_tasks = load_all_tasks()
             if not df_tasks.empty:
@@ -746,6 +743,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
