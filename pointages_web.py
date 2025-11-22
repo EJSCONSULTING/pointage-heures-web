@@ -419,61 +419,7 @@ def main():
     # Onglet HISTORIQUE + FILTRES
     # ==========================
 
-    with tab_historique:
-        st.subheader("Historique des prestations et filtres")
-
-        # Par défaut, on n'affiche que les non facturées
-        include_invoiced = st.checkbox(
-            "Inclure les prestations déjà facturées (archivées)",
-            value=False,
-        )
-
-        invoiced_filter = None if include_invoiced else False
-
-        df_all = load_prestations_filtered(invoiced=invoiced_filter)
-
-        providers = ["(Tous)"] + sorted(df_all["Prestataire"].dropna().unique().tolist())
-        clients_f = ["(Tous)"] + sorted(df_all["Client"].dropna().unique().tolist())
-        tasks_f = ["(Tous)"] + sorted(df_all["Tâche"].dropna().unique().tolist())
-
-        col_f1, col_f2, col_f3 = st.columns(3)
-
-        with col_f1:
-            f_provider = st.selectbox("Prestataire", options=providers)
-        with col_f2:
-            f_client = st.selectbox("Client", options=clients_f)
-        with col_f3:
-            f_task = st.selectbox("Tâche", options=tasks_f)
-
-        col_f4, col_f5 = st.columns(2)
-        with col_f4:
-            f_start_date = st.date_input(
-                "Date début (filtre)",
-                value=date.today(),
-                key="filter_start",
-            )
-        with col_f5:
-            f_end_date = st.date_input(
-                "Date fin (filtre)",
-                value=date.today(),
-                key="filter_end",
-            )
-
-        if st.button("Appliquer les filtres"):
-            df = load_prestations_filtered(
-                provider=f_provider,
-                client=f_client,
-                task=f_task,
-                start_date=f_start_date,
-                end_date=f_end_date,
-                invoiced=invoiced_filter,
-            )
-        else:
-            df = df_all
-
-        st.write(f"{len(df)} prestation(s) trouvée(s).")
-
-        if not df.empty:
+           if not df.empty:
             st.dataframe(df, use_container_width=True)
 
             total_global = df["Total €"].sum()
@@ -501,6 +447,7 @@ def main():
             )
         else:
             st.warning("Aucune prestation trouvée avec ces filtres.")
+
 
     # ==========================
     # Onglet FACTURATION / ARCHIVAGE
@@ -654,6 +601,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
