@@ -1,125 +1,154 @@
-import sqlite3
+import os
 from datetime import datetime, date, time
 
 import pandas as pd
+import psycopg2
 import streamlit as st
 
 
-DB_PATH = "prestations.db"
+# ==========================
+# Connexion PostgreSQL
+# ==========================
+
+def get_connection():
+    # Secrets définis dans Streamlit Cloud
+    return psycopg2.connect(
+        host=st.secrets["DB_HOST"],
+        port=st.secrets.get("DB_PORT", 5432),
+        dbname=st.secrets["DB_NAME"],
+        user=st.secrets["DB_USER"],
+        password=st.secrets["DB_PASSWORD"],
+        sslmode="require",
+    )
 
 
 # ==========================
 # Fonctions base de données
 # ==========================
 
-def get_connection():
-    return sqlite3.connect(DB_PATH)
-
-
 def load_clients():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT name FROM clients WHERE active = 1 ORDER BY name")
-    rows = cur.fetchall()
-    conn.close()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM clients WHERE active = true ORDER BY name;")
+            rows = cur.fetchall()
     return [r[0] for r in rows]
 
 
 def load_all_clients():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, name, active FROM clients ORDER BY name")
-    rows = cur.fetchall()
-    conn.close()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, name, active FROM clients ORDER BY name;")
+            rows = cur.fetchall()
+
     data = []
     for cid, name, active in rows:
-        data.append(
-            {"ID": cid, "Nom": name, "Actif": bool(active)}
-        )
+        data.append({"ID": cid, "Nom": name, "Actif": bool(active)})
     return pd.DataFrame(data)
 
 
 def add_or_reactivate_client(name: str):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM clients WHERE name = ?", (name,))
-    row = cur.fetchone()
-    if row:
-        cur.execute("UPDATE clients SET active = 1 WHERE id = ?", (row[0],))
-    else:
-        cur.execute("INSERT INTO clients (name, active) VALUES (?, 1)", (name,))
-    conn.commit()
-    conn.close()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO clients (name, active)
+                VALUES (%s, true)
+                ON CONFLICT (name)
+                DO UPDATE SET active = true;
+                """,
+                (name,),
+            )
+        conn.commit()
 
 
 def load_tasks():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT name, rate FROM tasks WHERE active = 1 ORDER BY name")
-    rows = cur.fetchall()
-    conn.close()
-    return {name: rate for name, rate in rows}
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name, rate FROM tasks WHERE active = true ORDER BY name;")
+            rows = cur.fetchall()
+    return {name: float(rate) for name, rate in rows}
 
 
 def load_all_tasks():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, name, rate, active FROM tasks ORDER BY name")
-    rows = cur.fetchall()
-    conn.close()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, name, rate, active FROM tasks ORDER BY name;")
+            rows = cur.fetchall()
+
     data = []
     for tid, name, rate, active in rows:
         data.append(
-            {"ID": tid, "Tâche": name, "Tarif €/h": rate, "Actif": bool(active)}
+            {"ID": tid, "Tâche": name, "Tarif €/h": float(rate), "Actif": bool(active)}
         )
     return pd.DataFrame(data)
 
 
 def upsert_task(name: str, rate: float):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM tasks WHERE name = ?", (name,))
-    row = cur.fetchone()
-    if row:
-        cur.execute(
-            "UPDATE tasks SET rate = ?, active = 1 WHERE id = ?",
-            (rate, row[0]),
-        )
-    else:
-        cur.execute(
-            "INSERT INTO tasks (name, rate, active) VALUES (?, ?, 1)",
-            (name, rate),
-        )
-    conn.commit()
-    conn.close()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO tasks (name, rate, active)
+                VALUES (%s, %s, true)
+                ON CONFLICT (name)
+                DO UPDATE SET rate = EXCLUDED.rate, active = true;
+                """,
+                (name, rate),
+            )
+        conn.commit()
+
+
+def ensure_default_tasks():
+    """Insère quelques tâches par défaut si la table est vide."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM tasks;")
+            count = cur.fetchone()[0]
+            if count == 0:
+                default_tasks = {
+                    "Analyse": 75.0,
+                    "Consultance": 90.0,
+                    "Déplacement": 50.0,
+                    "Administration": 60.0,
+                }
+                for name, rate in default_tasks.items():
+                    cur.execute(
+                        """
+                        INSERT INTO tasks (name, rate, active)
+                        VALUES (%s, %s, true)
+                        ON CONFLICT (name) DO NOTHING;
+                        """,
+                        (name, rate),
+                    )
+        conn.commit()
 
 
 def insert_prestation(provider, client, task, description, start_dt, end_dt, rate):
     hours = round((end_dt - start_dt).total_seconds() / 3600, 2)
     total = round(hours * rate, 2)
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO prestations
-        (provider, client, task, description, start, end, hours, rate, total, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            provider,
-            client,
-            task,
-            description,
-            start_dt.isoformat(timespec="seconds"),
-            end_dt.isoformat(timespec="seconds"),
-            hours,
-            rate,
-            total,
-            datetime.now().isoformat(timespec="seconds"),
-        ),
-    )
-    conn.commit()
-    conn.close()
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO prestations
+                (provider, client, task, description, start_at, end_at, hours, rate, total, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                """,
+                (
+                    provider,
+                    client,
+                    task,
+                    description,
+                    start_dt,
+                    end_dt,
+                    hours,
+                    rate,
+                    total,
+                ),
+            )
+        conn.commit()
+
     return hours, total
 
 
@@ -129,56 +158,48 @@ def insert_prestation(provider, client, task, description, start_dt, end_dt, rat
 
 def load_prestations_filtered(provider=None, client=None, task=None,
                               start_date=None, end_date=None):
-    conn = get_connection()
-    cur = conn.cursor()
-
-    sql = """
-        SELECT provider, client, task, description, start, end, hours, rate, total
-        FROM prestations
-    """
     conditions = []
     params = []
 
     if provider and provider != "(Tous)":
-        conditions.append("provider = ?")
+        conditions.append("provider = %s")
         params.append(provider)
 
     if client and client != "(Tous)":
-        conditions.append("client = ?")
+        conditions.append("client = %s")
         params.append(client)
 
     if task and task != "(Tous)":
-        conditions.append("task = ?")
+        conditions.append("task = %s")
         params.append(task)
 
     if start_date:
         start_dt = datetime.combine(start_date, time(0, 0, 0))
-        conditions.append("start >= ?")
-        params.append(start_dt.isoformat(timespec="seconds"))
+        conditions.append("start_at >= %s")
+        params.append(start_dt)
 
     if end_date:
         end_dt = datetime.combine(end_date, time(23, 59, 59))
-        conditions.append("start <= ?")
-        params.append(end_dt.isoformat(timespec="seconds"))
+        conditions.append("start_at <= %s")
+        params.append(end_dt)
+
+    sql = """
+        SELECT provider, client, task, description, start_at, end_at, hours, rate, total
+        FROM prestations
+    """
 
     if conditions:
         sql += " WHERE " + " AND ".join(conditions)
 
-    sql += " ORDER BY start ASC"
+    sql += " ORDER BY start_at ASC"
 
-    cur.execute(sql, params)
-    rows = cur.fetchall()
-    conn.close()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
 
     data = []
-    for provider_, client_, task_, desc, start_str, end_str, hours, rate, total in rows:
-        try:
-            start_dt = datetime.fromisoformat(start_str)
-            end_dt = datetime.fromisoformat(end_str)
-        except Exception:
-            start_dt = start_str
-            end_dt = end_str
-
+    for provider_, client_, task_, desc, start_dt, end_dt, hours, rate, total in rows:
         data.append({
             "Prestataire": provider_ or "",
             "Client": client_,
@@ -186,9 +207,9 @@ def load_prestations_filtered(provider=None, client=None, task=None,
             "Description": desc or "",
             "Début": start_dt,
             "Fin": end_dt,
-            "Heures": hours,
-            "Tarif €/h": rate,
-            "Total €": total,
+            "Heures": float(hours),
+            "Tarif €/h": float(rate),
+            "Total €": float(total),
         })
 
     if not data:
@@ -210,15 +231,40 @@ def load_prestations_filtered(provider=None, client=None, task=None,
 
 
 # ==========================
+# Auth simple (mot de passe)
+# ==========================
+
+def check_password():
+    app_pwd = st.secrets.get("APP_PASSWORD", None)
+    if not app_pwd:
+        # Pas de mot de passe configuré => accès libre
+        return True
+
+    pwd = st.text_input("Mot de passe", type="password")
+    if pwd == "":
+        return False
+    if pwd == app_pwd:
+        return True
+    else:
+        st.error("Mot de passe incorrect.")
+        return False
+
+
+# ==========================
 # Application Streamlit
 # ==========================
 
 def main():
     st.set_page_config(page_title="Pointage de temps", layout="wide")
 
-    st.title("Application de pointage d'heures – Version Web")
+    st.title("Application de pointage d'heures – Version Web (PostgreSQL)")
 
-    # Charger les listes pour les combos
+    if not check_password():
+        return
+
+    # S'assurer que quelques tâches par défaut existent
+    ensure_default_tasks()
+
     clients = load_clients()
     tasks = load_tasks()
 
@@ -241,8 +287,13 @@ def main():
             task = st.selectbox("Tâche", options=[""] + list(tasks.keys()))
 
             default_rate = tasks.get(task, 0.0)
-            rate = st.number_input("Tarif horaire (€ / h)", min_value=0.0, step=1.0, value=float(default_rate), key="rate_saisie")
-
+            rate = st.number_input(
+                "Tarif horaire (€ / h)",
+                min_value=0.0,
+                step=1.0,
+                value=float(default_rate),
+                key="rate_saisie",
+            )
 
         with col2:
             start_date = st.date_input("Date de début", value=date.today())
@@ -354,7 +405,6 @@ def main():
                     st.success(f"Client « {new_client.strip()} » enregistré / réactivé.")
                     st.rerun()
 
-
         with col_c2:
             df_clients = load_all_clients()
             if not df_clients.empty:
@@ -370,8 +420,13 @@ def main():
 
         with col_t1:
             new_task_name = st.text_input("Nom de la tâche")
-            new_task_rate = st.number_input("Tarif horaire (€ / h)", min_value=0.0, step=1.0, value=0.0, key="rate_task")
-
+            new_task_rate = st.number_input(
+                "Tarif horaire (€ / h)",
+                min_value=0.0,
+                step=1.0,
+                value=0.0,
+                key="rate_task",
+            )
 
             if st.button("Ajouter / Mettre à jour la tâche"):
                 if not new_task_name.strip():
@@ -382,7 +437,6 @@ def main():
                     upsert_task(new_task_name.strip(), float(new_task_rate))
                     st.success(f"Tâche « {new_task_name.strip()} » enregistrée / mise à jour.")
                     st.rerun()
-
 
         with col_t2:
             df_tasks = load_all_tasks()
