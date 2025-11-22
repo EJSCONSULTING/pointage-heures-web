@@ -139,8 +139,12 @@ def insert_prestation(provider, client, task, description, start_dt, end_dt, rat
             cur.execute(
                 """
                 INSERT INTO prestations
-                (provider, client, task, description, start_at, end_at, hours, rate, total, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                (provider, client, task, description,
+                 start_at, end_at, hours, rate, total,
+                 created_at, invoiced)
+                VALUES (%s, %s, %s, %s,
+                        %s, %s, %s, %s, %s,
+                        now(), false)
                 """,
                 (
                     provider,
@@ -159,13 +163,33 @@ def insert_prestation(provider, client, task, description, start_dt, end_dt, rat
     return hours, total
 
 
+def mark_prestations_invoiced(ids, invoice_ref: str | None):
+    """Marque une liste de prestations comme facturées / archivées."""
+    if not ids:
+        return
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE prestations
+                SET invoiced = true,
+                    invoiced_at = now(),
+                    invoice_ref = %s
+                WHERE id = ANY(%s)
+                """,
+                (invoice_ref, list(ids)),
+            )
+        conn.commit()
+
+
 # ==========================
 # Historique + filtres
 # ==========================
 
 @st.cache_data(ttl=60)
 def load_prestations_filtered(provider=None, client=None, task=None,
-                              start_date=None, end_date=None):
+                              start_date=None, end_date=None,
+                              invoiced: bool | None = None):
     conditions = []
     params = []
 
@@ -191,8 +215,15 @@ def load_prestations_filtered(provider=None, client=None, task=None,
         conditions.append("start_at <= %s")
         params.append(end_dt)
 
+    if invoiced is True:
+        conditions.append("invoiced = true")
+    elif invoiced is False:
+        conditions.append("invoiced = false")
+
     sql = """
-        SELECT provider, client, task, description, start_at, end_at, hours, rate, total
+        SELECT id, provider, client, task, description,
+               start_at, end_at, hours, rate, total,
+               invoiced, invoice_ref, invoiced_at
         FROM prestations
     """
 
@@ -207,8 +238,11 @@ def load_prestations_filtered(provider=None, client=None, task=None,
             rows = cur.fetchall()
 
     data = []
-    for provider_, client_, task_, desc, start_dt, end_dt, hours, rate, total in rows:
+    for (pid, provider_, client_, task_, desc,
+         start_dt, end_dt, hours, rate, total,
+         invoiced_flag, invoice_ref, invoiced_at) in rows:
         data.append({
+            "ID": pid,
             "Prestataire": provider_ or "",
             "Client": client_,
             "Tâche": task_,
@@ -218,11 +252,15 @@ def load_prestations_filtered(provider=None, client=None, task=None,
             "Heures": float(hours),
             "Tarif €/h": float(rate),
             "Total €": float(total),
+            "Facturée": bool(invoiced_flag),
+            "Réf facture": invoice_ref or "",
+            "Date facturation": invoiced_at,
         })
 
     if not data:
         return pd.DataFrame(
             columns=[
+                "ID",
                 "Prestataire",
                 "Client",
                 "Tâche",
@@ -232,6 +270,9 @@ def load_prestations_filtered(provider=None, client=None, task=None,
                 "Heures",
                 "Tarif €/h",
                 "Total €",
+                "Facturée",
+                "Réf facture",
+                "Date facturation",
             ]
         )
 
@@ -278,8 +319,13 @@ def main():
     clients = load_clients()
     tasks = load_tasks()
 
-    tab_saisie, tab_historique, tab_gestion = st.tabs(
-        ["Saisir une prestation", "Historique et filtres", "Gestion clients / tâches"]
+    tab_saisie, tab_historique, tab_facturation, tab_gestion = st.tabs(
+        [
+            "Saisir une prestation",
+            "Historique et filtres",
+            "Facturation / Archivage",
+            "Gestion clients / tâches",
+        ]
     )
 
     # ==========================
@@ -356,7 +402,15 @@ def main():
     with tab_historique:
         st.subheader("Historique des prestations et filtres")
 
-        df_all = load_prestations_filtered()
+        # Par défaut, on n'affiche que les non facturées
+        include_invoiced = st.checkbox(
+            "Inclure les prestations déjà facturées (archivées)",
+            value=False,
+        )
+
+        invoiced_filter = None if include_invoiced else False
+
+        df_all = load_prestations_filtered(invoiced=invoiced_filter)
 
         providers = ["(Tous)"] + sorted(df_all["Prestataire"].dropna().unique().tolist())
         clients_f = ["(Tous)"] + sorted(df_all["Client"].dropna().unique().tolist())
@@ -373,9 +427,17 @@ def main():
 
         col_f4, col_f5 = st.columns(2)
         with col_f4:
-            f_start_date = st.date_input("Date début (filtre)", value=date.today(), key="filter_start")
+            f_start_date = st.date_input(
+                "Date début (filtre)",
+                value=date.today(),
+                key="filter_start",
+            )
         with col_f5:
-            f_end_date = st.date_input("Date fin (filtre)", value=date.today(), key="filter_end")
+            f_end_date = st.date_input(
+                "Date fin (filtre)",
+                value=date.today(),
+                key="filter_end",
+            )
 
         if st.button("Appliquer les filtres"):
             df = load_prestations_filtered(
@@ -384,6 +446,7 @@ def main():
                 task=f_task,
                 start_date=f_start_date,
                 end_date=f_end_date,
+                invoiced=invoiced_filter,
             )
         else:
             df = df_all
@@ -397,10 +460,16 @@ def main():
             st.info(f"Total global : {total_global:.2f} €")
 
             st.write("Total par client")
-            st.dataframe(df.groupby("Client")["Total €"].sum().reset_index(), use_container_width=True)
+            st.dataframe(
+                df.groupby("Client")["Total €"].sum().reset_index(),
+                use_container_width=True,
+            )
 
             st.write("Total par prestataire")
-            st.dataframe(df.groupby("Prestataire")["Total €"].sum().reset_index(), use_container_width=True)
+            st.dataframe(
+                df.groupby("Prestataire")["Total €"].sum().reset_index(),
+                use_container_width=True,
+            )
 
             # Export CSV des résultats filtrés
             csv_data = df.to_csv(index=False, sep=";").encode("utf-8-sig")
@@ -412,6 +481,93 @@ def main():
             )
         else:
             st.warning("Aucune prestation trouvée avec ces filtres.")
+
+    # ==========================
+    # Onglet FACTURATION / ARCHIVAGE
+    # ==========================
+
+    with tab_facturation:
+        st.subheader("Préparation de facturation / Archivage")
+
+        # On ne travaille ici QUE sur les prestations non facturées
+        col_fc1, col_fc2 = st.columns(2)
+
+        with col_fc1:
+            cli_fact = st.selectbox(
+                "Client à facturer",
+                options=["(Tous)"] + clients,
+                key="fact_client",
+            )
+        with col_fc2:
+            prest_fact = st.text_input(
+                "Prestataire (facultatif, filtre)",
+                key="fact_provider",
+            )
+
+        col_fd1, col_fd2 = st.columns(2)
+        with col_fd1:
+            d_start = st.date_input(
+                "Période - date de début",
+                value=date.today().replace(day=1),
+                key="fact_start",
+            )
+        with col_fd2:
+            d_end = st.date_input(
+                "Période - date de fin",
+                value=date.today(),
+                key="fact_end",
+            )
+
+        df_to_invoice = load_prestations_filtered(
+            provider=prest_fact or None,
+            client=cli_fact if cli_fact != "(Tous)" else None,
+            start_date=d_start,
+            end_date=d_end,
+            invoiced=False,
+        )
+
+        if df_to_invoice.empty:
+            st.info("Aucune prestation à facturer pour ces critères.")
+        else:
+            st.write(f"{len(df_to_invoice)} prestation(s) non facturée(s) trouvée(s).")
+
+            # Préparer des labels lisibles pour la sélection
+            labels = {}
+            for _, row in df_to_invoice.iterrows():
+                rid = row["ID"]
+                labels[rid] = (
+                    f"{row['Début'].date()} – {row['Client']} – "
+                    f"{row['Tâche']} – {row['Heures']:.2f} h – {row['Total €']:.2f} €"
+                )
+
+            selected_ids = st.multiselect(
+                "Sélectionnez les prestations à facturer",
+                options=df_to_invoice["ID"].tolist(),
+                format_func=lambda x: labels.get(x, str(x)),
+                key="fact_ids",
+            )
+
+            st.write("Détail des prestations à facturer (non facturées) :")
+            st.dataframe(df_to_invoice, use_container_width=True)
+
+            total_sel = df_to_invoice[df_to_invoice["ID"].isin(selected_ids)]["Total €"].sum()
+            st.info(f"Total de la sélection : {total_sel:.2f} €")
+
+            invoice_ref = st.text_input(
+                "Référence de facture (facultatif, ex : 2025-001)",
+                key="fact_ref",
+            )
+
+            if st.button("Marquer comme facturées / archivées"):
+                if not selected_ids:
+                    st.error("Veuillez sélectionner au moins une prestation.")
+                else:
+                    mark_prestations_invoiced(selected_ids, invoice_ref.strip() or None)
+                    st.success(
+                        f"{len(selected_ids)} prestation(s) marquée(s) comme facturées."
+                    )
+                    st.cache_data.clear()
+                    st.rerun()
 
     # ==========================
     # Onglet GESTION CLIENTS / TÂCHES
@@ -478,6 +634,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
