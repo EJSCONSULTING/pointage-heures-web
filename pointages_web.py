@@ -282,51 +282,23 @@ def main():
     # Onglet SAISIE PRESTATION
     # ==========================
 
-    with tab_saisie:
-        st.subheader("Nouvelle prestation manuelle")
+    elif menu == "Saisir une prestation":
 
-        col1, col2 = st.columns(2)
+    st.subheader("Encoder une prestation")
 
-        with col1:
-            provider = st.text_input("Prestataire")
-            client = st.selectbox("Client", options=[""] + clients)
-            task = st.selectbox("Tâche", options=[""] + list(tasks.keys()))
+    col1, col2 = st.columns(2)
 
-            default_rate = tasks.get(task, 0.0)
-            rate = st.number_input(
-                "Tarif horaire (€ / h)",
-                min_value=0.0,
-                step=1.0,
-                value=float(default_rate),
-                key="rate_saisie",
-            )
+    with col1:
+        provider = st.text_input("Prestataire")
 
-        with col2:
-            start_date = st.date_input("Date de début", value=date.today())
-            start_time = st.time_input("Heure de début", value=time(9, 0))
-            end_date = st.date_input("Date de fin", value=date.today())
-            end_time = st.time_input("Heure de fin", value=time(10, 0))
+        clients = load_clients()
+        tasks = load_tasks()
 
-        description = st.text_area("Description (facultatif)")
+        client = st.selectbox("Client", options=[""] + clients)
 
-        if st.button("Enregistrer la prestation"):
-            if not provider:
-                st.error("Veuillez indiquer le nom du prestataire.")
-            elif not client:
-                st.error("Veuillez choisir un client.")
-            elif not task:
-                st.error("Veuillez choisir une tâche.")
-            else:
-                start_dt = datetime.combine(start_date, start_time)
-                end_dt = datetime.combine(end_date, end_time)
+        task = st.selectbox("Tâche", options=[""] + list(tasks.keys()))
 
-                if end_dt <= start_dt:
-                    st.error("La date/heure de fin doit être postérieure au début.")
-                else:
-                    hours, total = insert_prestation(
-                        provider, client, task, description, start_dt, end_dt, rate
-                    )
-                    st.success(f"Prestation enregistrée : {hours:.2f} h – {total:.2f} €")
+        rate = st.number_input("Tarif horaire (€ / h)", min_value=0.0, step=1.0, value=0.0)
 
     # ==========================
     # Onglet HISTORIQUE + FILTRES
@@ -455,5 +427,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
