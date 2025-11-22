@@ -473,7 +473,34 @@ def main():
 
         st.write(f"{len(df)} prestation(s) trouvée(s).")
 
-                    st.markdown("---")
+        if not df.empty:
+            st.dataframe(df, use_container_width=True)
+
+            total_global = df["Total €"].sum()
+            st.info(f"Total global : {total_global:.2f} €")
+
+            st.write("Total par client")
+            st.dataframe(
+                df.groupby("Client")["Total €"].sum().reset_index(),
+                use_container_width=True,
+            )
+
+            st.write("Total par prestataire")
+            st.dataframe(
+                df.groupby("Prestataire")["Total €"].sum().reset_index(),
+                use_container_width=True,
+            )
+
+            # Export CSV des résultats filtrés
+            csv_data = df.to_csv(index=False, sep=";").encode("utf-8-sig")
+            st.download_button(
+                "Télécharger les résultats filtrés (CSV)",
+                data=csv_data,
+                file_name="prestations_filtrees.csv",
+                mime="text/csv",
+            )
+
+            st.markdown("---")
             st.subheader("Modifier une prestation")
 
             # Choix de la prestation à modifier
@@ -572,7 +599,8 @@ def main():
 
                 st.success("Prestation mise à jour avec succès.")
                 st.cache_data.clear()
-
+        else:
+            st.warning("Aucune prestation trouvée avec ces filtres.")
 
     # ==========================
     # Onglet FACTURATION / ARCHIVAGE
@@ -659,7 +687,6 @@ def main():
                     )
                     st.cache_data.clear()
 
-
     # ==========================
     # Onglet GESTION CLIENTS / TÂCHES
     # ==========================
@@ -678,7 +705,7 @@ def main():
                     add_or_reactivate_client(new_client.strip())
                     st.success(f"Client « {new_client.strip()} » enregistré / réactivé.")
                     st.cache_data.clear()
-                    
+
         with col_c2:
             df_clients = load_all_clients()
             if not df_clients.empty:
@@ -711,7 +738,7 @@ def main():
                     upsert_task(new_task_name.strip(), float(new_task_rate))
                     st.success(f"Tâche « {new_task_name.strip()} » enregistrée / mise à jour.")
                     st.cache_data.clear()
-                    
+
         with col_t2:
             df_tasks = load_all_tasks()
             if not df_tasks.empty:
@@ -723,6 +750,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
