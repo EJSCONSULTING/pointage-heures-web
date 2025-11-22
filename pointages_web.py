@@ -1,8 +1,7 @@
-import os
+import psycopg2
 from datetime import datetime, date, time
 
 import pandas as pd
-import psycopg2
 import streamlit as st
 
 
@@ -21,17 +20,16 @@ def get_connection():
             sslmode="require",
         )
     except Exception as e:
-        # Debug lisible si ça casse encore
         st.error("Erreur de connexion à la base de données.")
         st.exception(e)
         raise
-
 
 
 # ==========================
 # Fonctions base de données
 # ==========================
 
+@st.cache_data(ttl=60)
 def load_clients():
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -40,6 +38,7 @@ def load_clients():
     return [r[0] for r in rows]
 
 
+@st.cache_data(ttl=60)
 def load_all_clients():
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -67,6 +66,7 @@ def add_or_reactivate_client(name: str):
         conn.commit()
 
 
+@st.cache_data(ttl=60)
 def load_tasks():
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -75,6 +75,7 @@ def load_tasks():
     return {name: float(rate) for name, rate in rows}
 
 
+@st.cache_data(ttl=60)
 def load_all_tasks():
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -162,6 +163,7 @@ def insert_prestation(provider, client, task, description, start_dt, end_dt, rat
 # Historique + filtres
 # ==========================
 
+@st.cache_data(ttl=60)
 def load_prestations_filtered(provider=None, client=None, task=None,
                               start_date=None, end_date=None):
     conditions = []
@@ -268,8 +270,10 @@ def main():
     if not check_password():
         return
 
-    # S'assurer que quelques tâches par défaut existent
-    ensure_default_tasks()
+    # Ne remplir les tâches par défaut qu'une seule fois par session
+    if "defaults_done" not in st.session_state:
+        ensure_default_tasks()
+        st.session_state["defaults_done"] = True
 
     clients = load_clients()
     tasks = load_tasks()
@@ -282,40 +286,68 @@ def main():
     # Onglet SAISIE PRESTATION
     # ==========================
 
-    with col1:
-    provider = st.text_input("Prestataire")
+    with tab_saisie:
+        st.subheader("Nouvelle prestation manuelle")
 
-    clients = load_clients()
-    tasks = load_tasks()
+        col1, col2 = st.columns(2)
 
-    client = st.selectbox("Client", options=[""] + clients)
+        with col1:
+            provider = st.text_input("Prestataire")
 
-    # Sélection de la tâche
-    task = st.selectbox(
-        "Tâche",
-        options=[""] + list(tasks.keys()),
-        key="task_select",
-    )
+            client = st.selectbox("Client", options=[""] + clients)
 
-    # Initialisation du state
-    if "last_task" not in st.session_state:
-        st.session_state.last_task = ""
-    if "rate_saisie" not in st.session_state:
-        st.session_state.rate_saisie = 0.0
+            task = st.selectbox(
+                "Tâche",
+                options=[""] + list(tasks.keys()),
+                key="task_select",
+            )
 
-    # Si la tâche change, mettre à jour le tarif
-    if task and task != st.session_state.last_task:
-        st.session_state.last_task = task
-        st.session_state.rate_saisie = float(tasks.get(task, 0.0))
+            # Initialisation du state
+            if "last_task" not in st.session_state:
+                st.session_state.last_task = ""
+            if "rate_saisie" not in st.session_state:
+                st.session_state.rate_saisie = 0.0
 
-    # Le champ tarif qui s’adapte automatiquement
-    rate = st.number_input(
-        "Tarif horaire (€ / h)",
-        min_value=0.0,
-        step=1.0,
-        key="rate_saisie",
-    )
+            # Si la tâche change, mettre à jour le tarif automatiquement
+            if task and task != st.session_state.last_task:
+                st.session_state.last_task = task
+                st.session_state.rate_saisie = float(tasks.get(task, 0.0))
 
+            # Le champ tarif qui s'adapte automatiquement
+            rate = st.number_input(
+                "Tarif horaire (€ / h)",
+                min_value=0.0,
+                step=1.0,
+                key="rate_saisie",
+            )
+
+        with col2:
+            start_date = st.date_input("Date de début", value=date.today())
+            start_time = st.time_input("Heure de début", value=time(9, 0))
+            end_date = st.date_input("Date de fin", value=date.today())
+            end_time = st.time_input("Heure de fin", value=time(10, 0))
+
+        description = st.text_area("Description (facultatif)")
+
+        if st.button("Enregistrer la prestation"):
+            if not provider:
+                st.error("Veuillez indiquer le nom du prestataire.")
+            elif not client:
+                st.error("Veuillez choisir un client.")
+            elif not task:
+                st.error("Veuillez choisir une tâche.")
+            else:
+                start_dt = datetime.combine(start_date, start_time)
+                end_dt = datetime.combine(end_date, end_time)
+
+                if end_dt <= start_dt:
+                    st.error("La date/heure de fin doit être postérieure au début.")
+                else:
+                    hours, total = insert_prestation(
+                        provider, client, task, description, start_dt, end_dt, rate
+                    )
+                    st.success(f"Prestation enregistrée : {hours:.2f} h – {total:.2f} €")
+                    st.cache_data.clear()
 
     # ==========================
     # Onglet HISTORIQUE + FILTRES
@@ -341,17 +373,17 @@ def main():
 
         col_f4, col_f5 = st.columns(2)
         with col_f4:
-            f_start_date = st.date_input("Date début (filtre)", value=None, key="filter_start")
+            f_start_date = st.date_input("Date début (filtre)", value=date.today(), key="filter_start")
         with col_f5:
-            f_end_date = st.date_input("Date fin (filtre)", value=None, key="filter_end")
+            f_end_date = st.date_input("Date fin (filtre)", value=date.today(), key="filter_end")
 
         if st.button("Appliquer les filtres"):
             df = load_prestations_filtered(
                 provider=f_provider,
                 client=f_client,
                 task=f_task,
-                start_date=f_start_date if isinstance(f_start_date, date) else None,
-                end_date=f_end_date if isinstance(f_end_date, date) else None,
+                start_date=f_start_date,
+                end_date=f_end_date,
             )
         else:
             df = df_all
@@ -398,6 +430,7 @@ def main():
                 else:
                     add_or_reactivate_client(new_client.strip())
                     st.success(f"Client « {new_client.strip()} » enregistré / réactivé.")
+                    st.cache_data.clear()
                     st.rerun()
 
         with col_c2:
@@ -431,6 +464,7 @@ def main():
                 else:
                     upsert_task(new_task_name.strip(), float(new_task_rate))
                     st.success(f"Tâche « {new_task_name.strip()} » enregistrée / mise à jour.")
+                    st.cache_data.clear()
                     st.rerun()
 
         with col_t2:
@@ -444,6 +478,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
