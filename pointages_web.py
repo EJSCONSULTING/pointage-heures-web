@@ -3,6 +3,9 @@ from datetime import datetime, date, time
 
 import pandas as pd
 import streamlit as st
+from pathlib import Path
+
+LOGO_PATH = "logo_ejs.png"
 
 
 # ==========================
@@ -913,9 +916,30 @@ def ui_gestion():
 # ==========================
 
 def main():
-    st.set_page_config(page_title="Pointage de temps", layout="wide")
+    st.set_page_config(
+        page_title="EJS – Pointage des heures",
+        page_icon=LOGO_PATH,  # Utilise ton logo comme icône d’onglet
+        layout="wide",
+    )
 
-    st.title("Application de pointage d'heures – Version Web (PostgreSQL)")
+    col_logo, col_title = st.columns([1, 4])
+
+    with col_logo:
+        if Path(LOGO_PATH).exists():
+            st.image(LOGO_PATH, use_column_width=False, width=70)
+
+    with col_title:
+        st.markdown(
+            """
+            <div style="padding-top:10px;">
+              <h1 style="margin-bottom:0;">EJS – Pointage des heures</h1>
+              <p style="margin-top:4px; color:#666; font-size:18px;">
+                Suivi des prestations, facturation et tableau de bord
+              </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     if not check_password():
         return
@@ -980,6 +1004,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
