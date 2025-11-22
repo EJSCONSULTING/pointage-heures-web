@@ -282,23 +282,40 @@ def main():
     # Onglet SAISIE PRESTATION
     # ==========================
 
-    elif menu == "Saisir une prestation":
-
-    st.subheader("Encoder une prestation")
-
-    col1, col2 = st.columns(2)
-
     with col1:
-        provider = st.text_input("Prestataire")
+    provider = st.text_input("Prestataire")
 
-        clients = load_clients()
-        tasks = load_tasks()
+    clients = load_clients()
+    tasks = load_tasks()
 
-        client = st.selectbox("Client", options=[""] + clients)
+    client = st.selectbox("Client", options=[""] + clients)
 
-        task = st.selectbox("Tâche", options=[""] + list(tasks.keys()))
+    # Sélection de la tâche
+    task = st.selectbox(
+        "Tâche",
+        options=[""] + list(tasks.keys()),
+        key="task_select",
+    )
 
-        rate = st.number_input("Tarif horaire (€ / h)", min_value=0.0, step=1.0, value=0.0)
+    # Initialisation du state
+    if "last_task" not in st.session_state:
+        st.session_state.last_task = ""
+    if "rate_saisie" not in st.session_state:
+        st.session_state.rate_saisie = 0.0
+
+    # Si la tâche change, mettre à jour le tarif
+    if task and task != st.session_state.last_task:
+        st.session_state.last_task = task
+        st.session_state.rate_saisie = float(tasks.get(task, 0.0))
+
+    # Le champ tarif qui s’adapte automatiquement
+    rate = st.number_input(
+        "Tarif horaire (€ / h)",
+        min_value=0.0,
+        step=1.0,
+        key="rate_saisie",
+    )
+
 
     # ==========================
     # Onglet HISTORIQUE + FILTRES
@@ -427,6 +444,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
