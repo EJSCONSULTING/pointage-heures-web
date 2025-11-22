@@ -1,3 +1,4 @@
 prestations.db
 *.sqlite
 *.db
+__pycache__/
