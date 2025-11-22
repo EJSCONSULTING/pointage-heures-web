@@ -106,7 +106,6 @@ def upsert_task(name: str, rate: float):
 
 
 def ensure_default_tasks():
-    """Insère quelques tâches par défaut si la table est vide."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM tasks;")
@@ -129,6 +128,47 @@ def ensure_default_tasks():
                     )
         conn.commit()
 
+
+# --------- Prestataires (multi-prestataire) ---------
+
+@st.cache_data(ttl=60)
+def load_providers():
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM providers WHERE active = true ORDER BY name;")
+            rows = cur.fetchall()
+    return [r[0] for r in rows]
+
+
+@st.cache_data(ttl=60)
+def load_all_providers():
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, name, active FROM providers ORDER BY name;")
+            rows = cur.fetchall()
+
+    data = []
+    for pid, name, active in rows:
+        data.append({"ID": pid, "Prestataire": name, "Actif": bool(active)})
+    return pd.DataFrame(data)
+
+
+def add_or_reactivate_provider(name: str):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO providers (name, active)
+                VALUES (%s, true)
+                ON CONFLICT (name)
+                DO UPDATE SET active = true;
+                """,
+                (name,),
+            )
+        conn.commit()
+
+
+# --------- Prestations ---------
 
 def insert_prestation(provider, client, task, description, start_dt, end_dt, rate):
     hours = round((end_dt - start_dt).total_seconds() / 3600, 2)
@@ -164,7 +204,6 @@ def insert_prestation(provider, client, task, description, start_dt, end_dt, rat
 
 
 def mark_prestations_invoiced(ids, invoice_ref: str | None):
-    """Marque une liste de prestations comme facturées / archivées."""
     if not ids:
         return
     with get_connection() as conn:
@@ -183,7 +222,6 @@ def mark_prestations_invoiced(ids, invoice_ref: str | None):
 
 
 def update_prestation_basic(p_id, provider, client, task, description, rate, total):
-    """Met à jour les infos principales d'une prestation (sans changer les heures/dates)."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -306,7 +344,6 @@ def load_prestations_filtered(provider=None, client=None, task=None,
 def check_password():
     app_pwd = st.secrets.get("APP_PASSWORD", None)
     if not app_pwd:
-        # Pas de mot de passe configuré => accès libre
         return True
 
     pwd = st.text_input("Mot de passe", type="password")
@@ -331,20 +368,21 @@ def main():
     if not check_password():
         return
 
-    # Ne remplir les tâches par défaut qu'une seule fois par session
     if "defaults_done" not in st.session_state:
         ensure_default_tasks()
         st.session_state["defaults_done"] = True
 
     clients = load_clients()
     tasks = load_tasks()
+    providers = load_providers()
 
-    tab_saisie, tab_historique, tab_facturation, tab_gestion = st.tabs(
+    tab_saisie, tab_historique, tab_dashboard, tab_facturation, tab_gestion = st.tabs(
         [
             "Saisir une prestation",
             "Historique et filtres",
+            "Tableau de bord",
             "Facturation / Archivage",
-            "Gestion clients / tâches",
+            "Gestion clients / tâches / prestataires",
         ]
     )
 
@@ -353,67 +391,171 @@ def main():
     # ==========================
 
     with tab_saisie:
-        st.subheader("Nouvelle prestation manuelle")
+        st.subheader("Saisie des prestations")
 
-        col1, col2 = st.columns(2)
+        sub_tab_manual, sub_tab_timer = st.tabs(["Encodage manuel", "Timer"])
 
-        with col1:
-            provider = st.text_input("Prestataire")
+        # --- Encodage manuel ---
+        with sub_tab_manual:
+            col1, col2 = st.columns(2)
 
-            client = st.selectbox("Client", options=[""] + clients)
-
-            task = st.selectbox(
-                "Tâche",
-                options=[""] + list(tasks.keys()),
-                key="task_select",
-            )
-
-            # Initialisation du state
-            if "last_task" not in st.session_state:
-                st.session_state.last_task = ""
-            if "rate_saisie" not in st.session_state:
-                st.session_state.rate_saisie = 0.0
-
-            # Si la tâche change, mettre à jour le tarif automatiquement
-            if task and task != st.session_state.last_task:
-                st.session_state.last_task = task
-                st.session_state.rate_saisie = float(tasks.get(task, 0.0))
-
-            # Le champ tarif qui s'adapte automatiquement
-            rate = st.number_input(
-                "Tarif horaire (€ / h)",
-                min_value=0.0,
-                step=1.0,
-                key="rate_saisie",
-            )
-
-        with col2:
-            start_date = st.date_input("Date de début", value=date.today())
-            start_time = st.time_input("Heure de début", value=time(9, 0))
-            end_date = st.date_input("Date de fin", value=date.today())
-            end_time = st.time_input("Heure de fin", value=time(10, 0))
-
-        description = st.text_area("Description (facultatif)")
-
-        if st.button("Enregistrer la prestation"):
-            if not provider:
-                st.error("Veuillez indiquer le nom du prestataire.")
-            elif not client:
-                st.error("Veuillez choisir un client.")
-            elif not task:
-                st.error("Veuillez choisir une tâche.")
-            else:
-                start_dt = datetime.combine(start_date, start_time)
-                end_dt = datetime.combine(end_date, end_time)
-
-                if end_dt <= start_dt:
-                    st.error("La date/heure de fin doit être postérieure au début.")
-                else:
-                    hours, total = insert_prestation(
-                        provider, client, task, description, start_dt, end_dt, rate
+            with col1:
+                if providers:
+                    provider = st.selectbox(
+                        "Prestataire",
+                        options=providers,
+                        key="provider_manual",
                     )
-                    st.success(f"Prestation enregistrée : {hours:.2f} h – {total:.2f} €")
-                    st.cache_data.clear()
+                else:
+                    provider = st.text_input(
+                        "Prestataire (aucun prestataire configuré)",
+                        key="provider_manual_text",
+                    )
+
+                client = st.selectbox("Client", options=[""] + clients, key="client_manual")
+
+                task = st.selectbox(
+                    "Tâche",
+                    options=[""] + list(tasks.keys()),
+                    key="task_manual",
+                )
+
+                if "last_task" not in st.session_state:
+                    st.session_state.last_task = ""
+                if "rate_saisie" not in st.session_state:
+                    st.session_state.rate_saisie = 0.0
+
+                if task and task != st.session_state.last_task:
+                    st.session_state.last_task = task
+                    st.session_state.rate_saisie = float(tasks.get(task, 0.0))
+
+                rate = st.number_input(
+                    "Tarif horaire (€ / h)",
+                    min_value=0.0,
+                    step=1.0,
+                    key="rate_saisie",
+                )
+
+            with col2:
+                start_date = st.date_input("Date de début", value=date.today())
+                start_time = st.time_input("Heure de début", value=time(9, 0))
+                end_date = st.date_input("Date de fin", value=date.today())
+                end_time = st.time_input("Heure de fin", value=time(10, 0))
+
+            description = st.text_area("Description (facultatif)", key="desc_manual")
+
+            if st.button("Enregistrer la prestation (manuel)"):
+                if not provider:
+                    st.error("Veuillez indiquer le prestataire.")
+                elif not client:
+                    st.error("Veuillez choisir un client.")
+                elif not task:
+                    st.error("Veuillez choisir une tâche.")
+                else:
+                    start_dt = datetime.combine(start_date, start_time)
+                    end_dt = datetime.combine(end_date, end_time)
+
+                    if end_dt <= start_dt:
+                        st.error("La date/heure de fin doit être postérieure au début.")
+                    else:
+                        hours, total = insert_prestation(
+                            provider, client, task, description, start_dt, end_dt, rate
+                        )
+                        st.success(
+                            f"Prestation enregistrée : {hours:.2f} h – {total:.2f} €"
+                        )
+                        st.cache_data.clear()
+
+        # --- Timer ---
+        with sub_tab_timer:
+            st.info("Mode timer : démarrez et arrêtez le chronomètre pour enregistrer une prestation.")
+
+            if "timer_running" not in st.session_state:
+                st.session_state.timer_running = False
+            if "timer_start" not in st.session_state:
+                st.session_state.timer_start = None
+
+            col_t1, col_t2 = st.columns(2)
+
+            with col_t1:
+                if providers:
+                    provider_t = st.selectbox(
+                        "Prestataire",
+                        options=providers,
+                        key="timer_provider",
+                    )
+                else:
+                    provider_t = st.text_input(
+                        "Prestataire (aucun prestataire configuré)",
+                        key="timer_provider_text",
+                    )
+
+                client_t = st.selectbox(
+                    "Client",
+                    options=[""] + clients,
+                    key="timer_client",
+                )
+
+                task_t = st.selectbox(
+                    "Tâche",
+                    options=[""] + list(tasks.keys()),
+                    key="timer_task",
+                )
+
+                description_t = st.text_area(
+                    "Description (facultatif)",
+                    key="timer_desc",
+                )
+
+            with col_t2:
+                if not st.session_state.timer_running:
+                    if st.button("Démarrer le timer"):
+                        if not provider_t:
+                            st.error("Veuillez indiquer le prestataire.")
+                        elif not client_t:
+                            st.error("Veuillez choisir un client.")
+                        elif not task_t:
+                            st.error("Veuillez choisir une tâche.")
+                        else:
+                            st.session_state.timer_running = True
+                            st.session_state.timer_start = datetime.now()
+                            st.session_state.timer_provider_val = provider_t
+                            st.session_state.timer_client_val = client_t
+                            st.session_state.timer_task_val = task_t
+                            st.session_state.timer_desc_val = description_t
+                            st.success(
+                                f"Timer démarré à {st.session_state.timer_start.strftime('%Y-%m-%d %H:%M:%S')}"
+                            )
+                else:
+                    st.write(
+                        f"Timer démarré à : {st.session_state.timer_start.strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                    elapsed = datetime.now() - st.session_state.timer_start
+                    seconds = int(elapsed.total_seconds())
+                    hours = seconds // 3600
+                    minutes = (seconds % 3600) // 60
+                    st.write(f"Temps écoulé : {hours:02d} h {minutes:02d} min")
+
+                    if st.button("Arrêter le timer et enregistrer"):
+                        start_dt = st.session_state.timer_start
+                        end_dt = datetime.now()
+                        provider = st.session_state.timer_provider_val
+                        client = st.session_state.timer_client_val
+                        task = st.session_state.timer_task_val
+                        description = st.session_state.timer_desc_val
+
+                        rate_auto = float(tasks.get(task, 0.0))
+                        hours_used, total = insert_prestation(
+                            provider, client, task, description, start_dt, end_dt, rate_auto
+                        )
+
+                        st.success(
+                            f"Prestation (timer) enregistrée : {hours_used:.2f} h – {total:.2f} €"
+                        )
+                        st.cache_data.clear()
+
+                        st.session_state.timer_running = False
+                        st.session_state.timer_start = None
 
     # ==========================
     # Onglet HISTORIQUE + FILTRES
@@ -422,7 +564,6 @@ def main():
     with tab_historique:
         st.subheader("Historique des prestations et filtres")
 
-        # Par défaut, on n'affiche que les non facturées
         include_invoiced = st.checkbox(
             "Inclure les prestations déjà facturées (archivées)",
             value=False,
@@ -432,14 +573,14 @@ def main():
 
         df_all = load_prestations_filtered(invoiced=invoiced_filter)
 
-        providers = ["(Tous)"] + sorted(df_all["Prestataire"].dropna().unique().tolist())
+        providers_f = ["(Tous)"] + sorted(df_all["Prestataire"].dropna().unique().tolist())
         clients_f = ["(Tous)"] + sorted(df_all["Client"].dropna().unique().tolist())
         tasks_f = ["(Tous)"] + sorted(df_all["Tâche"].dropna().unique().tolist())
 
         col_f1, col_f2, col_f3 = st.columns(3)
 
         with col_f1:
-            f_provider = st.selectbox("Prestataire", options=providers)
+            f_provider = st.selectbox("Prestataire", options=providers_f)
         with col_f2:
             f_client = st.selectbox("Client", options=clients_f)
         with col_f3:
@@ -491,7 +632,6 @@ def main():
                 use_container_width=True,
             )
 
-            # Export CSV des résultats filtrés
             csv_data = df.to_csv(index=False, sep=";").encode("utf-8-sig")
             st.download_button(
                 "Télécharger les résultats filtrés (CSV)",
@@ -503,7 +643,6 @@ def main():
             st.markdown("---")
             st.subheader("Modifier une prestation")
 
-            # Choix de la prestation à modifier
             labels_edit = {}
             for _, row in df.iterrows():
                 rid = row["ID"]
@@ -519,7 +658,6 @@ def main():
                 key="edit_prestation_id",
             )
 
-            # Ligne de la prestation sélectionnée
             row_edit = df[df["ID"] == edit_id].iloc[0]
 
             col_e1, col_e2 = st.columns(2)
@@ -531,13 +669,10 @@ def main():
                     key="edit_provider",
                 )
 
-                # On part de la liste des clients actifs
                 clients_all = load_clients()
-                # On s'assure que le client de la prestation est présent dans la liste
                 if row_edit["Client"] not in clients_all:
                     clients_all = clients_all + [row_edit["Client"]]
 
-                # Calcul de l'index du client actuel
                 try:
                     idx_client = clients_all.index(row_edit["Client"])
                 except ValueError:
@@ -550,8 +685,7 @@ def main():
                     key="edit_client",
                 )
 
-                # Même logique pour les tâches
-                tasks_all = load_tasks()  # dict nom -> rate
+                tasks_all = load_tasks()
                 task_names = list(tasks_all.keys())
                 if row_edit["Tâche"] not in task_names:
                     task_names.append(row_edit["Tâche"])
@@ -584,8 +718,8 @@ def main():
                 )
 
             if st.button("Enregistrer les modifications", key="btn_edit_save"):
-                hours = float(row_edit["Heures"])
-                new_total = round(hours * float(rate_edit), 2)
+                hours_val = float(row_edit["Heures"])
+                new_total = round(hours_val * float(rate_edit), 2)
 
                 update_prestation_basic(
                     p_id=edit_id,
@@ -603,13 +737,63 @@ def main():
             st.warning("Aucune prestation trouvée avec ces filtres.")
 
     # ==========================
+    # Onglet TABLEAU DE BORD
+    # ==========================
+
+    with tab_dashboard:
+        st.subheader("Tableau de bord")
+
+        df_dash = load_prestations_filtered(invoiced=None)
+
+        if df_dash.empty:
+            st.info("Aucune prestation dans la base pour le moment.")
+        else:
+            total_heures = df_dash["Heures"].sum()
+            total_euros = df_dash["Total €"].sum()
+            non_fact = df_dash[df_dash["Facturée"] == False]
+            total_non_fact = non_fact["Total €"].sum()
+
+            col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
+            with col_kpi1:
+                st.metric("Heures totales (toutes)", f"{total_heures:.2f} h")
+            with col_kpi2:
+                st.metric("Montant total (toutes)", f"{total_euros:.2f} €")
+            with col_kpi3:
+                st.metric("En attente de facturation", f"{total_non_fact:.2f} €")
+
+            st.markdown("---")
+
+            df_dash = df_dash.copy()
+            df_dash["Mois"] = df_dash["Début"].dt.to_period("M").dt.to_timestamp()
+
+            st.write("Total par client (€)")
+            df_client = (
+                df_dash.groupby("Client")["Total €"].sum().sort_values(ascending=False)
+            )
+            if not df_client.empty:
+                st.bar_chart(df_client)
+
+            st.write("Total par tâche (€)")
+            df_task = (
+                df_dash.groupby("Tâche")["Total €"].sum().sort_values(ascending=False)
+            )
+            if not df_task.empty:
+                st.bar_chart(df_task)
+
+            st.write("Total par mois (€)")
+            df_month = (
+                df_dash.groupby("Mois")["Total €"].sum().sort_index()
+            )
+            if not df_month.empty:
+                st.line_chart(df_month)
+
+    # ==========================
     # Onglet FACTURATION / ARCHIVAGE
     # ==========================
 
     with tab_facturation:
         st.subheader("Préparation de facturation / Archivage")
 
-        # On ne travaille ici QUE sur les prestations non facturées
         col_fc1, col_fc2 = st.columns(2)
 
         with col_fc1:
@@ -688,7 +872,7 @@ def main():
                     st.cache_data.clear()
 
     # ==========================
-    # Onglet GESTION CLIENTS / TÂCHES
+    # Onglet GESTION
     # ==========================
 
     with tab_gestion:
@@ -747,9 +931,36 @@ def main():
             else:
                 st.info("Aucune tâche dans la base.")
 
+        st.markdown("---")
+        st.subheader("Gestion des prestataires")
+
+        col_p1, col_p2 = st.columns([1, 2])
+
+        with col_p1:
+            new_provider = st.text_input("Nouveau prestataire (ou à réactiver)")
+            if st.button("Ajouter / Réactiver le prestataire"):
+                if not new_provider.strip():
+                    st.error("Veuillez saisir un nom de prestataire.")
+                else:
+                    add_or_reactivate_provider(new_provider.strip())
+                    st.success(
+                        f"Prestataire « {new_provider.strip()} » enregistré / réactivé."
+                    )
+                    st.cache_data.clear()
+
+        with col_p2:
+            df_providers = load_all_providers()
+            if not df_providers.empty:
+                st.write("Liste des prestataires")
+                st.dataframe(df_providers, use_container_width=True)
+            else:
+                st.info("Aucun prestataire dans la base.")
+
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
