@@ -473,34 +473,7 @@ def main():
 
         st.write(f"{len(df)} prestation(s) trouvée(s).")
 
-        if not df.empty:
-            st.dataframe(df, use_container_width=True)
-
-            total_global = df["Total €"].sum()
-            st.info(f"Total global : {total_global:.2f} €")
-
-            st.write("Total par client")
-            st.dataframe(
-                df.groupby("Client")["Total €"].sum().reset_index(),
-                use_container_width=True,
-            )
-
-            st.write("Total par prestataire")
-            st.dataframe(
-                df.groupby("Prestataire")["Total €"].sum().reset_index(),
-                use_container_width=True,
-            )
-
-            # Export CSV des résultats filtrés
-            csv_data = df.to_csv(index=False, sep=";").encode("utf-8-sig")
-            st.download_button(
-                "Télécharger les résultats filtrés (CSV)",
-                data=csv_data,
-                file_name="prestations_filtrees.csv",
-                mime="text/csv",
-            )
-
-            st.markdown("---")
+                    st.markdown("---")
             st.subheader("Modifier une prestation")
 
             # Choix de la prestation à modifier
@@ -519,6 +492,7 @@ def main():
                 key="edit_prestation_id",
             )
 
+            # Ligne de la prestation sélectionnée
             row_edit = df[df["ID"] == edit_id].iloc[0]
 
             col_e1, col_e2 = st.columns(2)
@@ -530,10 +504,13 @@ def main():
                     key="edit_provider",
                 )
 
+                # On part de la liste des clients actifs
                 clients_all = load_clients()
-                tasks_all = load_tasks()
+                # On s'assure que le client de la prestation est présent dans la liste
+                if row_edit["Client"] not in clients_all:
+                    clients_all = clients_all + [row_edit["Client"]]
 
-                # index du client actuel
+                # Calcul de l'index du client actuel
                 try:
                     idx_client = clients_all.index(row_edit["Client"])
                 except ValueError:
@@ -546,7 +523,12 @@ def main():
                     key="edit_client",
                 )
 
+                # Même logique pour les tâches
+                tasks_all = load_tasks()  # dict nom -> rate
                 task_names = list(tasks_all.keys())
+                if row_edit["Tâche"] not in task_names:
+                    task_names.append(row_edit["Tâche"])
+
                 try:
                     idx_task = task_names.index(row_edit["Tâche"])
                 except ValueError:
@@ -591,8 +573,6 @@ def main():
                 st.success("Prestation mise à jour avec succès.")
                 st.cache_data.clear()
 
-            else:
-                st.warning("Aucune prestation trouvée avec ces filtres.")
 
     # ==========================
     # Onglet FACTURATION / ARCHIVAGE
@@ -743,6 +723,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
