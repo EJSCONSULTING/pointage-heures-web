@@ -129,13 +129,70 @@ def ui_facturation():
         st.success("Facturé !")
 
 def ui_gestion():
-    st.subheader("Administration")
-    c1, c2 = st.columns(2)
-    with c1:
-        new_c = st.text_input("Nouveau Client")
-        if st.button("Ajouter Client") and new_c:
-            db.add_or_reactivate_client(new_c)
-            st.success("OK")
-            db.load_clients.clear()
-    with c2:
-        st.dataframe(db.load_all_clients())
+    # --- 1. Clients ---
+    st.subheader("Gestion des clients")
+    col_c1, col_c2 = st.columns([1, 2])
+
+    with col_c1:
+        new_client = st.text_input("Nouveau client (ou à réactiver)", key="new_client")
+        if st.button("Ajouter / Réactiver Client", key="btn_add_client"):
+            if not new_client.strip():
+                st.error("Veuillez saisir un nom.")
+            else:
+                db.add_or_reactivate_client(new_client.strip())
+                st.success(f"Client « {new_client.strip()} » enregistré.")
+                db.load_clients.clear()
+                db.load_all_clients.clear()
+
+    with col_c2:
+        st.dataframe(db.load_all_clients(), use_container_width=True)
+
+    st.markdown("---")
+
+    # --- 2. Tâches (C'est ici que vous définissez les tarifs) ---
+    st.subheader("Gestion des tâches")
+    col_t1, col_t2 = st.columns([1, 2])
+
+    with col_t1:
+        new_task_name = st.text_input("Nom de la tâche", key="new_task_name")
+        new_task_rate = st.number_input(
+            "Tarif horaire (€ / h)",
+            min_value=0.0,
+            step=1.0,
+            value=0.0,
+            key="rate_task",
+        )
+
+        if st.button("Ajouter / Mettre à jour Tâche", key="btn_add_task"):
+            if not new_task_name.strip():
+                st.error("Veuillez saisir un nom de tâche.")
+            elif new_task_rate <= 0:
+                st.error("Le tarif doit être supérieur à 0.")
+            else:
+                db.upsert_task(new_task_name.strip(), float(new_task_rate))
+                st.success(f"Tâche « {new_task_name.strip()} » mise à jour.")
+                db.load_tasks.clear()
+                db.load_all_tasks.clear()
+
+    with col_t2:
+        st.dataframe(db.load_all_tasks(), use_container_width=True)
+
+    st.markdown("---")
+
+    # --- 3. Prestataires ---
+    st.subheader("Gestion des prestataires")
+    col_p1, col_p2 = st.columns([1, 2])
+
+    with col_p1:
+        new_provider = st.text_input("Nouveau prestataire", key="new_provider")
+        if st.button("Ajouter Prestataire", key="btn_add_provider"):
+            if not new_provider.strip():
+                st.error("Veuillez saisir un nom.")
+            else:
+                db.add_or_reactivate_provider(new_provider.strip())
+                st.success(f"Prestataire « {new_provider.strip()} » ajouté.")
+                db.load_providers.clear()
+                db.load_all_providers.clear()
+
+    with col_p2:
+        st.dataframe(db.load_all_providers(), use_container_width=True)
