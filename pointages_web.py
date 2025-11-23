@@ -223,21 +223,14 @@ def mark_prestations_invoiced(ids, invoice_ref: str | None):
         conn.commit()
 
 
-def update_prestation_basic(p_id, provider, client, task, description, rate, total):
+def delete_prestations(ids):
+    if not ids:
+        return
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                UPDATE prestations
-                SET provider = %s,
-                    client = %s,
-                    task = %s,
-                    description = %s,
-                    rate = %s,
-                    total = %s
-                WHERE id = %s
-                """,
-                (provider, client, task, description, rate, total, p_id),
+                "DELETE FROM prestations WHERE id = ANY(%s);",
+                (list(ids),),
             )
         conn.commit()
 
@@ -610,98 +603,30 @@ def ui_historique():
         )
 
         st.markdown("---")
-        st.subheader("Modifier une prestation")
+        st.subheader("Supprimer des prestations")
 
-        labels_edit = {}
+        labels_del = {}
         for _, row in df.iterrows():
             rid = row["ID"]
-            labels_edit[rid] = (
+            labels_del[rid] = (
                 f"{row['Début']} – {row['Client']} – "
                 f"{row['Tâche']} – {row['Heures']:.2f} h – {row['Total €']:.2f} €"
             )
 
-        edit_id = st.selectbox(
-            "Sélectionnez la prestation à modifier",
+        selected_for_delete = st.multiselect(
+            "Sélectionnez les prestations à supprimer",
             options=df["ID"].tolist(),
-            format_func=lambda x: labels_edit.get(x, str(x)),
-            key="edit_prestation_id",
+            format_func=lambda x: labels_del.get(x, str(x)),
+            key="delete_prestations_ids",
         )
 
-        row_edit = df[df["ID"] == edit_id].iloc[0]
-
-        col_e1, col_e2 = st.columns(2)
-
-        with col_e1:
-            provider_edit = st.text_input(
-                "Prestataire",
-                value=row_edit["Prestataire"],
-                key="edit_provider",
-            )
-
-            clients_all = load_clients()
-            if row_edit["Client"] not in clients_all:
-                clients_all = clients_all + [row_edit["Client"]]
-
-            try:
-                idx_client = clients_all.index(row_edit["Client"])
-            except ValueError:
-                idx_client = 0
-
-            client_edit = st.selectbox(
-                "Client",
-                options=clients_all,
-                index=idx_client if clients_all else 0,
-                key="edit_client",
-            )
-
-            tasks_all = load_tasks()
-            task_names = list(tasks_all.keys())
-            if row_edit["Tâche"] not in task_names:
-                task_names.append(row_edit["Tâche"])
-
-            try:
-                idx_task = task_names.index(row_edit["Tâche"])
-            except ValueError:
-                idx_task = 0
-
-            task_edit = st.selectbox(
-                "Tâche",
-                options=task_names,
-                index=idx_task if task_names else 0,
-                key="edit_task",
-            )
-
-        with col_e2:
-            description_edit = st.text_area(
-                "Description",
-                value=row_edit["Description"],
-                key="edit_description",
-            )
-
-            rate_edit = st.number_input(
-                "Tarif horaire (€ / h)",
-                min_value=0.0,
-                step=1.0,
-                value=float(row_edit["Tarif €/h"]),
-                key="edit_rate",
-            )
-
-        if st.button("Enregistrer les modifications", key="btn_edit_save"):
-            hours_val = float(row_edit["Heures"])
-            new_total = round(hours_val * float(rate_edit), 2)
-
-            update_prestation_basic(
-                p_id=edit_id,
-                provider=provider_edit,
-                client=client_edit,
-                task=task_edit,
-                description=description_edit,
-                rate=float(rate_edit),
-                total=new_total,
-            )
-
-            st.success("Prestation mise à jour avec succès.")
-            st.cache_data.clear()
+        if st.button("Supprimer les prestations sélectionnées", key="btn_delete_prestations"):
+            if not selected_for_delete:
+                st.error("Veuillez sélectionner au moins une prestation à supprimer.")
+            else:
+                delete_prestations(selected_for_delete)
+                st.success(f"{len(selected_for_delete)} prestation(s) supprimée(s).")
+                st.cache_data.clear()
     else:
         st.warning("Aucune prestation trouvée avec ces filtres.")
 
@@ -1003,9 +928,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
 
 
 
