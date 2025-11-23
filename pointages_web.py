@@ -341,15 +341,19 @@ def check_password():
     if not app_pwd:
         return True
 
+    # Si déjà authentifié dans cette session, on ne redemande plus le mot de passe
+    if st.session_state.get("auth_ok", False):
+        return True
+
     pwd = st.text_input("Mot de passe", type="password")
     if pwd == "":
         return False
     if pwd == app_pwd:
+        st.session_state["auth_ok"] = True
         return True
     else:
         st.error("Mot de passe incorrect.")
         return False
-
 
 # ==========================
 # UI helpers
@@ -627,6 +631,7 @@ def ui_historique():
                 delete_prestations(selected_for_delete)
                 st.success(f"{len(selected_for_delete)} prestation(s) supprimée(s).")
                 st.cache_data.clear()
+                st.rerun()
     else:
         st.warning("Aucune prestation trouvée avec ces filtres.")
 
@@ -928,6 +933,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
