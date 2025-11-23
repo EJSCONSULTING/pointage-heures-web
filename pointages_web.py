@@ -32,7 +32,6 @@ def get_connection():
 # Fonctions base de données
 # ==========================
 
-@st.cache_data(ttl=60)
 def load_clients():
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -69,7 +68,6 @@ def add_or_reactivate_client(name: str):
         conn.commit()
 
 
-@st.cache_data(ttl=60)
 def load_tasks():
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -134,7 +132,6 @@ def ensure_default_tasks():
 
 # --------- Prestataires (multi-prestataire) ---------
 
-@st.cache_data(ttl=60)
 def load_providers():
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -1004,6 +1001,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
