@@ -1,4 +1,10 @@
-prestations.db
-*.sqlite
-*.db
+# Ignorer les secrets Streamlit
+.streamlit/secrets.toml
+
+# Ignorer les fichiers temporaires Python
 __pycache__/
+*.py[cod]
+
+# Ignorer les environnements virtuels (si vous en utilisez)
+venv/
+.env
