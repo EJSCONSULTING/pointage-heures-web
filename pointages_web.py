@@ -135,7 +135,9 @@ def ensure_default_tasks():
 def load_providers():
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT name FROM providers WHERE active = true ORDER BY name;")
+            cur.execute(
+                "SELECT name FROM providers WHERE active = true ORDER BY name;"
+            )
             rows = cur.fetchall()
     return [r[0] for r in rows]
 
@@ -357,10 +359,14 @@ def check_password():
 
 
 # ==========================
-# UI helpers (réutilisés desktop + mobile)
+# UI helpers
 # ==========================
 
-def ui_manual_entry(clients, tasks, providers):
+def ui_manual_entry():
+    clients = load_clients()
+    tasks = load_tasks()
+    providers = load_providers()
+
     st.subheader("Encodage manuel")
 
     col1, col2 = st.columns(2)
@@ -431,7 +437,11 @@ def ui_manual_entry(clients, tasks, providers):
                 st.cache_data.clear()
 
 
-def ui_timer(clients, tasks, providers):
+def ui_timer():
+    clients = load_clients()
+    tasks = load_tasks()
+    providers = load_providers()
+
     st.subheader("Timer de prestation")
 
     if "timer_running" not in st.session_state:
@@ -724,28 +734,24 @@ def ui_dashboard():
     df_dash["Mois"] = df_dash["Début"].dt.to_period("M").dt.to_timestamp()
 
     st.write("Total par client (€)")
-    df_client = (
-        df_dash.groupby("Client")["Total €"].sum().sort_values(ascending=False)
-    )
+    df_client = df_dash.groupby("Client")["Total €"].sum().sort_values(ascending=False)
     if not df_client.empty:
         st.bar_chart(df_client)
 
     st.write("Total par tâche (€)")
-    df_task = (
-        df_dash.groupby("Tâche")["Total €"].sum().sort_values(ascending=False)
-    )
+    df_task = df_dash.groupby("Tâche")["Total €"].sum().sort_values(ascending=False)
     if not df_task.empty:
         st.bar_chart(df_task)
 
     st.write("Total par mois (€)")
-    df_month = (
-        df_dash.groupby("Mois")["Total €"].sum().sort_index()
-    )
+    df_month = df_dash.groupby("Mois")["Total €"].sum().sort_index()
     if not df_month.empty:
         st.line_chart(df_month)
 
 
-def ui_facturation(clients):
+def ui_facturation():
+    clients = load_clients()
+
     st.subheader("Préparation de facturation / Archivage")
 
     col_fc1, col_fc2 = st.columns(2)
@@ -915,7 +921,7 @@ def ui_gestion():
 def main():
     st.set_page_config(
         page_title="EJS – Pointage des heures",
-        page_icon=LOGO_PATH,  # Utilise ton logo comme icône d’onglet
+        page_icon=LOGO_PATH,
         layout="wide",
     )
 
@@ -945,10 +951,6 @@ def main():
         ensure_default_tasks()
         st.session_state["defaults_done"] = True
 
-    clients = load_clients()
-    tasks = load_tasks()
-    providers = load_providers()
-
     mobile_mode = st.sidebar.checkbox("Mode mobile (vue simplifiée)", value=False)
 
     if mobile_mode:
@@ -960,11 +962,11 @@ def main():
         )
 
         if page == "Timer":
-            ui_timer(clients, tasks, providers)
+            ui_timer()
         elif page == "Saisie rapide":
-            ui_manual_entry(clients, tasks, providers)
+            ui_manual_entry()
         elif page == "Facturation":
-            ui_facturation(clients)
+            ui_facturation()
         elif page == "Historique":
             ui_historique()
     else:
@@ -981,10 +983,10 @@ def main():
         with tab_saisie:
             sub_tab_manual, sub_tab_timer = st.tabs(["Encodage manuel", "Timer"])
             with sub_tab_manual:
-                ui_manual_entry(clients, tasks, providers)
+                ui_manual_entry()
             with sub_tab_timer:
                 st.info("Mode timer : démarrez et arrêtez le chronomètre pour enregistrer une prestation.")
-                ui_timer(clients, tasks, providers)
+                ui_timer()
 
         with tab_historique:
             ui_historique()
@@ -993,7 +995,7 @@ def main():
             ui_dashboard()
 
         with tab_facturation:
-            ui_facturation(clients)
+            ui_facturation()
 
         with tab_gestion:
             ui_gestion()
@@ -1001,6 +1003,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
