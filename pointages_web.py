@@ -32,6 +32,7 @@ def get_connection():
 # Fonctions base de données
 # ==========================
 
+@st.cache_data(ttl=60)
 def load_clients():
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -68,6 +69,7 @@ def add_or_reactivate_client(name: str):
         conn.commit()
 
 
+@st.cache_data(ttl=60)
 def load_tasks():
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -132,6 +134,7 @@ def ensure_default_tasks():
 
 # --------- Prestataires (multi-prestataire) ---------
 
+@st.cache_data(ttl=60)
 def load_providers():
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -332,6 +335,13 @@ def load_prestations_filtered(provider=None, client=None, task=None,
     return pd.DataFrame(data)
 
 
+def clear_prestations_cache():
+    try:
+        load_prestations_filtered.clear()
+    except Exception:
+        pass
+
+
 # ==========================
 # Auth simple (mot de passe)
 # ==========================
@@ -341,7 +351,6 @@ def check_password():
     if not app_pwd:
         return True
 
-    # Si déjà authentifié dans cette session, on ne redemande plus le mot de passe
     if st.session_state.get("auth_ok", False):
         return True
 
@@ -354,6 +363,7 @@ def check_password():
     else:
         st.error("Mot de passe incorrect.")
         return False
+
 
 # ==========================
 # UI helpers
@@ -431,7 +441,7 @@ def ui_manual_entry():
                     provider, client, task, description, start_dt, end_dt, rate
                 )
                 st.success(f"Prestation enregistrée : {hours:.2f} h – {total:.2f} €")
-                st.cache_data.clear()
+                clear_prestations_cache()
 
 
 def ui_timer():
@@ -519,7 +529,7 @@ def ui_timer():
             st.success(
                 f"Prestation (timer) enregistrée : {hours_used:.2f} h – {total:.2f} €"
             )
-            st.cache_data.clear()
+            clear_prestations_cache()
 
             st.session_state.timer_running = False
             st.session_state.timer_start = None
@@ -629,8 +639,8 @@ def ui_historique():
                 st.error("Veuillez sélectionner au moins une prestation à supprimer.")
             else:
                 delete_prestations(selected_for_delete)
+                clear_prestations_cache()
                 st.success(f"{len(selected_for_delete)} prestation(s) supprimée(s).")
-                st.cache_data.clear()
                 st.rerun()
     else:
         st.warning("Aucune prestation trouvée avec ces filtres.")
@@ -756,10 +766,10 @@ def ui_facturation():
                 st.error("Veuillez sélectionner au moins une prestation.")
             else:
                 mark_prestations_invoiced(selected_ids, invoice_ref.strip() or None)
+                clear_prestations_cache()
                 st.success(
                     f"{len(selected_ids)} prestation(s) marquée(s) comme facturées."
                 )
-                st.cache_data.clear()
 
 
 def ui_gestion():
@@ -775,7 +785,8 @@ def ui_gestion():
             else:
                 add_or_reactivate_client(new_client.strip())
                 st.success(f"Client « {new_client.strip()} » enregistré / réactivé.")
-                st.cache_data.clear()
+                load_clients.clear()
+                load_all_clients.clear()
 
     with col_c2:
         df_clients = load_all_clients()
@@ -808,7 +819,8 @@ def ui_gestion():
             else:
                 upsert_task(new_task_name.strip(), float(new_task_rate))
                 st.success(f"Tâche « {new_task_name.strip()} » enregistrée / mise à jour.")
-                st.cache_data.clear()
+                load_tasks.clear()
+                load_all_tasks.clear()
 
     with col_t2:
         df_tasks = load_all_tasks()
@@ -833,7 +845,8 @@ def ui_gestion():
                 st.success(
                     f"Prestataire « {new_provider.strip()} » enregistré / réactivé."
                 )
-                st.cache_data.clear()
+                load_providers.clear()
+                load_all_providers.clear()
 
     with col_p2:
         df_providers = load_all_providers()
@@ -933,6 +946,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
