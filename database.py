@@ -199,4 +199,27 @@ def load_prestations_filtered(provider=None, client=None, task=None, start_date=
 
 def clear_prestations_cache():
     try: load_prestations_filtered.clear()
+
     except: pass
+
+    # --- AJOUTER CETTE NOUVELLE FONCTION DANS database.py ---
+
+def update_prestation(id_prestation, provider, client, task, description, start_dt, end_dt, rate):
+    """Met à jour une prestation existante."""
+    # Recalcul des heures et du total
+    hours = round((end_dt - start_dt).total_seconds() / 3600, 2)
+    total = round(hours * rate, 2)
+    
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE prestations 
+                SET provider = %s, client = %s, task = %s, description = %s, 
+                    start_at = %s, end_at = %s, hours = %s, rate = %s, total = %s
+                WHERE id = %s
+                """,
+                (provider, client, task, description, start_dt, end_dt, hours, rate, total, id_prestation),
+            )
+        conn.commit()
+    return hours, total
