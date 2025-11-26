@@ -120,23 +120,33 @@ def ui_timer():
             db.clear_prestations_cache()
             st.rerun()
 
-# --- 3. HISTORIQUE ---
+# --- 3. HISTORIQUE (Avec fonction ÉDITION) ---
 def ui_historique():
-    st.subheader("📚 Historique")
+    st.subheader("📚 Historique des prestations")
+    
+    # État de la session pour l'édition
+    if "edit_mode" not in st.session_state: st.session_state.edit_mode = False
+    if "edit_id" not in st.session_state: st.session_state.edit_id = None
+    
+    # Si on est en mode édition, on affiche le formulaire de modification
+    if st.session_state.edit_mode and st.session_state.edit_id is not None:
+        ui_edit_form(st.session_state.edit_id)
+        return # Arrêter l'exécution pour ne pas afficher le tableau en dessous
 
-    # Zone de filtres repliable pour gagner de la place
+    # --- Zone de filtres repliable ---
     with st.expander("🔍 Filtres et Options", expanded=False):
+        # ... (Gardez la logique de filtres existante, qui est déjà dans votre code) ...
         include_invoiced = st.checkbox("Voir aussi les archives (facturées)", value=False)
         invoiced_filter = None if include_invoiced else False
 
         c1, c2, c3 = st.columns(3)
-        prov = c1.selectbox("Prestataire", ["(Tous)"] + db.load_providers())
-        cli = c2.selectbox("Client", ["(Tous)"] + db.load_clients())
-        tsk = c3.selectbox("Tâche", ["(Tous)"] + list(db.load_tasks().keys()))
+        prov = c1.selectbox("Prestataire", ["(Tous)"] + db.load_providers(), key="hist_prov")
+        cli = c2.selectbox("Client", ["(Tous)"] + db.load_clients(), key="hist_cli")
+        tsk = c3.selectbox("Tâche", ["(Tous)"] + list(db.load_tasks().keys()), key="hist_task")
         
         c4, c5 = st.columns(2)
-        d_start = c4.date_input("Du", value=date.today())
-        d_end = c5.date_input("Au", value=date.today())
+        d_start = c4.date_input("Du", value=date.today(), key="hist_start")
+        d_end = c5.date_input("Au", value=date.today(), key="hist_end")
         
         apply_filters = st.button("Appliquer les filtres")
 
@@ -146,43 +156,161 @@ def ui_historique():
     else:
         df = db.load_prestations_filtered(invoiced=invoiced_filter)
 
-    # Métriques globales au-dessus du tableau
-    if not df.empty:
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Nombre", f"{len(df)}")
-        m2.metric("Heures", f"{df['Heures'].sum():.2f} h")
-        m3.metric("Montant Total", f"{df['Total €'].sum():.2f} €")
+    st.write(f"**{len(df)} prestation(s) trouvée(s).**")
 
-        # Configuration des colonnes pour un affichage PRO (Devise, Date)
-        st.dataframe(
+    # --- Affichage des résultats ---
+    if not df.empty:
+        # Configuration des colonnes
+        column_config = {
+            "Total €": st.column_config.NumberColumn("Total", format="%.2f €"),
+            "Tarif €/h": st.column_config.NumberColumn("Tarif", format="%.2f €"),
+            "Début": st.column_config.DatetimeColumn("Début", format="DD/MM/YYYY HH:mm"),
+            "Fin": st.column_config.DatetimeColumn("Fin", format="DD/MM/YYYY HH:mm"),
+            "Description": st.column_config.TextColumn("Description", width="large"),
+            # Ajout d'une colonne bouton pour l'édition
+            "Action": st.column_config.ButtonColumn("Modifier", help="Modifier cette ligne", key="edit_btn_col"),
+        }
+        
+        # Le st.dataframe appelle la session state quand on clique sur le bouton
+        edited_df = st.dataframe(
             df, 
             use_container_width=True,
-            column_config={
-                "Total €": st.column_config.NumberColumn("Total", format="%.2f €"),
-                "Tarif €/h": st.column_config.NumberColumn("Tarif", format="%.2f €"),
-                "Début": st.column_config.DatetimeColumn("Début", format="DD/MM/YYYY HH:mm"),
-                "Fin": st.column_config.DatetimeColumn("Fin", format="DD/MM/YYYY HH:mm"),
-                "Description": st.column_config.TextColumn("Description", width="large"),
-            },
-            hide_index=True # On cache l'index numéroté moche
+            column_config=column_config,
+            hide_index=True,
+            on_select="default"
         )
-
-        # Actions (Export / Suppression)
-        col_act1, col_act2 = st.columns([1, 3])
-        with col_act1:
-            csv = df.to_csv(index=False, sep=";").encode("utf-8-sig")
-            st.download_button("📥 Télécharger CSV", data=csv, file_name="export.csv", mime="text/csv")
         
-        with col_act2:
-            with st.popover("🗑️ Supprimer des lignes"):
-                to_del = st.multiselect("Choisir les IDs à supprimer", df["ID"])
-                if st.button("Confirmer suppression") and to_del:
-                    db.delete_prestations(to_del)
-                    db.clear_prestations_cache()
-                    st.rerun()
-    else:
-        st.info("Aucune donnée ne correspond à votre recherche.")
+        # Logique pour le bouton "Modifier"
+        if edited_df.selection["rows"]:
+            # On prend l'ID de la ligne sélectionnée
+            selected_row_index = edited_df.selection["rows"][0]
+            selected_id = df.iloc[selected_row_index]["ID"]
+            
+            # On active le mode édition avec l'ID
+            st.session_state.edit_id = selected_id
+            st.session_state.edit_mode = True
+            st.rerun()
 
+        # ... (Gardez la zone d'export CSV et de suppression existante) ...
+        st.markdown("---")
+        
+        # Totals et Export CSV
+        col_export, col_total = st.columns([1, 2])
+        total_global = df["Total €"].sum()
+        
+        with col_total:
+            st.info(f"💰 **Total pour la sélection : {total_global:.2f} €**")
+        with col_export:
+            csv_data = df.to_csv(index=False, sep=";").encode("utf-8-sig")
+            st.download_button(
+                "📥 Télécharger CSV",
+                data=csv_data,
+                file_name="prestations_filtrees.csv",
+                mime="text/csv",
+            )
+            
+        st.markdown("---")
+        
+        # Suppression
+        with st.popover("🗑️ Supprimer des lignes", use_container_width=True):
+            # Création de libellés lisibles pour le multiselect
+            labels_del = {}
+            for _, row in df.iterrows():
+                rid = row["ID"]
+                labels_del[rid] = f"{row['Début']} – {row['Client']} – {row['Total €']:.2f} €"
+
+            selected_for_delete = st.multiselect(
+                "Sélectionnez les prestations à supprimer",
+                options=df["ID"].tolist(),
+                format_func=lambda x: labels_del.get(x, str(x)),
+                key="del_ids"
+            )
+
+            if st.button("Confirmer la suppression", type="primary"):
+                if not selected_for_delete:
+                    st.error("Veuillez sélectionner au moins une ligne.")
+                else:
+                    db.delete_prestations(selected_for_delete)
+                    db.clear_prestations_cache()
+                    st.success(f"{len(selected_for_delete)} prestation(s) supprimée(s).")
+                    st.rerun()
+
+    else:
+        st.warning("Aucune prestation trouvée avec ces critères.")
+        
+# --- NOUVELLE FONCTION : FORMULAIRE D'ÉDITION ---
+def ui_edit_form(prestation_id):
+    st.subheader(f"✏️ Modification de la prestation ID: {prestation_id}")
+    
+    # Chargement de la ligne à éditer (on réutilise load_prestations_filtered pour ne pas surcharger database.py)
+    df_single = db.load_prestations_filtered(provider=None, start_date=None, end_date=None, invoiced=None)
+    
+    try:
+        data = df_single[df_single["ID"] == prestation_id].iloc[0]
+    except IndexError:
+        st.error("Prestation non trouvée.")
+        st.session_state.edit_mode = False
+        st.session_state.edit_id = None
+        return
+
+    clients = db.load_clients()
+    tasks = db.load_tasks()
+    providers = db.load_providers()
+    task_rates = db.load_tasks()
+    
+    # --- Formulaire d'édition ---
+    with st.form("edit_prestation_form", border=True):
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            e_provider = st.selectbox("Prestataire", options=providers, index=providers.index(data["Prestataire"]) if data["Prestataire"] in providers else 0, key="e_prov")
+            e_client = st.selectbox("Client", options=clients, index=clients.index(data["Client"]), key="e_cli")
+        
+        with col2:
+            e_task = st.selectbox("Tâche", options=list(tasks.keys()), index=list(tasks.keys()).index(data["Tâche"]), key="e_task")
+            # Le tarif est soit celui par défaut de la tâche, soit celui enregistré s'il était customisé
+            default_rate = task_rates.get(data["Tâche"], 0.0)
+            initial_rate = data["Tarif €/h"]
+            e_rate = st.number_input("Tarif horaire (€ / h)", min_value=0.0, step=1.0, value=initial_rate, key="e_rate")
+
+        with col3:
+            # Récupération des composants date/time
+            start_dt = data["Début"]
+            end_dt = data["Fin"]
+            
+            e_start_date = st.date_input("Date début", value=start_dt.date(), key="e_start_d")
+            e_start_time = st.time_input("Heure début", value=start_dt.time(), key="e_start_t")
+            e_end_date = st.date_input("Date fin", value=end_dt.date(), key="e_end_d")
+            e_end_time = st.time_input("Heure fin", value=end_dt.time(), key="e_end_t")
+            
+        e_description = st.text_area("Description complète", value=data["Description"], key="e_desc")
+
+        col_b1, col_b2 = st.columns(2)
+        
+        if col_b1.form_submit_button("💾 Enregistrer les modifications", type="primary"):
+            new_start_dt = datetime.combine(e_start_date, e_start_time)
+            new_end_dt = datetime.combine(e_end_date, e_end_time)
+            
+            if new_end_dt <= new_start_dt:
+                st.error("⚠️ La date de fin doit être après le début.")
+            else:
+                h, t = db.update_prestation(
+                    prestation_id, e_provider, e_client, e_task, e_description, 
+                    new_start_dt, new_end_dt, e_rate
+                )
+                st.success(f"✅ Prestation mise à jour : {h} h — {t} €")
+                db.clear_prestations_cache()
+                # Sortir du mode édition
+                st.session_state.edit_mode = False
+                st.session_state.edit_id = None
+                st.rerun()
+
+        if col_b2.form_submit_button("Annuler et revenir à l'historique"):
+            # Sortir du mode édition sans sauvegarder
+            st.session_state.edit_mode = False
+            st.session_state.edit_id = None
+            st.rerun()
 # --- 4. DASHBOARD ---
 def ui_dashboard():
     st.subheader("📊 Tableau de bord")
@@ -301,4 +429,5 @@ def ui_gestion():
                         st.rerun()
         with c2:
             st.dataframe(db.load_all_providers(), use_container_width=True, hide_index=True)
+
 
