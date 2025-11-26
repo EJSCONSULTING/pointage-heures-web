@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date, time
 import database as db
+import plotly.express as px
 
 # --- 1. ENCODAGE MANUEL ---
 def ui_manual_entry():
@@ -300,3 +301,4 @@ def ui_gestion():
                         st.rerun()
         with c2:
             st.dataframe(db.load_all_providers(), use_container_width=True, hide_index=True)
+
