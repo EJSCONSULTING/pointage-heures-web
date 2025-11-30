@@ -170,7 +170,7 @@ def ui_historique():
         
         st.info("💡 **Pour modifier une prestation, cliquez simplement sur une ligne du tableau.**")
 
-       # Le st.dataframe gère la sélection de ligne
+      # Le st.dataframe gère la sélection de ligne
         selected_data = st.dataframe(
             df, 
             use_container_width=True,
@@ -180,10 +180,9 @@ def ui_historique():
         )
         
         # Logique pour la sélection :
-        # selected_data est toujours un dictionnaire avec la clé 'selection'
-        # 'rows' est la liste des index sélectionnés (vide si aucune sélection)
-        
-        if "selection" in selected_data and selected_data["selection"]["rows"]:
+        # Correction : On vérifie si le dictionnaire est vide AVANT de tenter d'accéder à la clé "selection"
+        # Si selected_data n'est pas vide et contient une sélection
+        if selected_data and "selection" in selected_data and selected_data["selection"]["rows"]:
             # On prend l'ID de la ligne sélectionnée
             selected_row_index = selected_data["selection"]["rows"][0]
             selected_id = df.iloc[selected_row_index]["ID"]
@@ -432,6 +431,7 @@ def ui_gestion():
                         st.rerun()
         with c2:
             st.dataframe(db.load_all_providers(), use_container_width=True, hide_index=True)
+
 
 
 
