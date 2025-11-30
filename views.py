@@ -180,14 +180,27 @@ def ui_historique():
         )
         
         # Logique pour la sélection :
-        # Correction : On vérifie si le dictionnaire est vide AVANT de tenter d'accéder à la clé "selection"
-        # Si selected_data n'est pas vide et contient une sélection
-        if selected_data and "selection" in selected_data and selected_data["selection"]["rows"]:
-            # On prend l'ID de la ligne sélectionnée
+        # --- CORRECTION FINALE : Vérification du type pour gérer l'incompatibilité de version ---
+        import pandas as pd # On s'assure que pandas est disponible pour la vérification de type
+        
+        selection_made = False
+        selected_id = None
+        
+        # 1. Vérification si le retour est le dictionnaire interactif (Version Streamlit Moderne)
+        if isinstance(selected_data, dict) and selected_data.get("selection", {}).get("rows"):
             selected_row_index = selected_data["selection"]["rows"][0]
             selected_id = df.iloc[selected_row_index]["ID"]
+            selection_made = True
             
-            # On active le mode édition avec l'ID
+        # 2. Vérification si le retour est un DataFrame (Ancien comportement Streamlit)
+        # Note : On suppose que l'import de pandas est fait au début de views.py
+        elif isinstance(selected_data, pd.DataFrame) and not selected_data.empty:
+            # Si Streamlit renvoie directement le DataFrame des lignes sélectionnées
+            selected_id = selected_data.iloc[0]["ID"]
+            selection_made = True
+
+        if selection_made:
+            # On active le mode édition avec l'ID sélectionné
             st.session_state.edit_id = selected_id
             st.session_state.edit_mode = True
             st.rerun()
@@ -431,6 +444,7 @@ def ui_gestion():
                         st.rerun()
         with c2:
             st.dataframe(db.load_all_providers(), use_container_width=True, hide_index=True)
+
 
 
 
