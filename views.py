@@ -170,7 +170,7 @@ def ui_historique():
         
         st.info("💡 **Pour modifier une prestation, cliquez simplement sur une ligne du tableau.**")
 
-        # Le st.dataframe gère la sélection de ligne
+       # Le st.dataframe gère la sélection de ligne
         selected_data = st.dataframe(
             df, 
             use_container_width=True,
@@ -180,15 +180,20 @@ def ui_historique():
         )
         
         # Logique pour la sélection (qui remplace le clic sur le bouton)
-        if selected_data and selected_data["selection"]["rows"]:
+        # --- CORRECTION APPLIQUÉE ICI ---
+        selection_info = selected_data.get("selection") if selected_data else None
+        
+        if selection_info and selection_info.get("rows"):
             # On prend l'ID de la ligne sélectionnée (le premier élément de la liste des lignes sélectionnées)
-            selected_row_index = selected_data["selection"]["rows"][0]
+            selected_row_index = selection_info["rows"][0]
             selected_id = df.iloc[selected_row_index]["ID"]
             
             # On active le mode édition avec l'ID
             st.session_state.edit_id = selected_id
             st.session_state.edit_mode = True
             st.rerun()
+
+        # ... (Le reste de la fonction continue ici) ...
 
         # ... (Le reste de la fonction: Totaux, Export CSV, et Suppression) ...
         st.markdown("---")
@@ -427,6 +432,7 @@ def ui_gestion():
                         st.rerun()
         with c2:
             st.dataframe(db.load_all_providers(), use_container_width=True, hide_index=True)
+
 
 
 
