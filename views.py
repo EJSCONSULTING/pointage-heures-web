@@ -120,7 +120,7 @@ def ui_timer():
             db.clear_prestations_cache()
             st.rerun()
 
-# --- 3. HISTORIQUE (Avec fonction ÉDITION) ---
+# --- 3. HISTORIQUE (Mode Édition par sélection de ligne) ---
 def ui_historique():
     st.subheader("📚 Historique des prestations")
     
@@ -135,7 +135,6 @@ def ui_historique():
 
     # --- Zone de filtres repliable ---
     with st.expander("🔍 Filtres et Options", expanded=False):
-        # ... (Gardez la logique de filtres existante, qui est déjà dans votre code) ...
         include_invoiced = st.checkbox("Voir aussi les archives (facturées)", value=False)
         invoiced_filter = None if include_invoiced else False
 
@@ -160,30 +159,30 @@ def ui_historique():
 
     # --- Affichage des résultats ---
     if not df.empty:
-        # Configuration des colonnes
+        # Configuration des colonnes (sans le ButtonColumn)
         column_config = {
             "Total €": st.column_config.NumberColumn("Total", format="%.2f €"),
             "Tarif €/h": st.column_config.NumberColumn("Tarif", format="%.2f €"),
             "Début": st.column_config.DatetimeColumn("Début", format="DD/MM/YYYY HH:mm"),
             "Fin": st.column_config.DatetimeColumn("Fin", format="DD/MM/YYYY HH:mm"),
             "Description": st.column_config.TextColumn("Description", width="large"),
-            # Ajout d'une colonne bouton pour l'édition
-            "Action": st.column_config.ButtonColumn("Modifier", help="Modifier cette ligne", key="edit_btn_col"),
         }
         
-        # Le st.dataframe appelle la session state quand on clique sur le bouton
-        edited_df = st.dataframe(
+        st.info("💡 **Pour modifier une prestation, cliquez simplement sur une ligne du tableau.**")
+
+        # Le st.dataframe gère la sélection de ligne
+        selected_data = st.dataframe(
             df, 
             use_container_width=True,
             column_config=column_config,
             hide_index=True,
-            on_select="default"
+            selection_mode="single" # Permet de sélectionner une seule ligne
         )
         
-        # Logique pour le bouton "Modifier"
-        if edited_df.selection["rows"]:
-            # On prend l'ID de la ligne sélectionnée
-            selected_row_index = edited_df.selection["rows"][0]
+        # Logique pour la sélection (qui remplace le clic sur le bouton)
+        if selected_data and selected_data["selection"]["rows"]:
+            # On prend l'ID de la ligne sélectionnée (le premier élément de la liste des lignes sélectionnées)
+            selected_row_index = selected_data["selection"]["rows"][0]
             selected_id = df.iloc[selected_row_index]["ID"]
             
             # On active le mode édition avec l'ID
@@ -191,7 +190,7 @@ def ui_historique():
             st.session_state.edit_mode = True
             st.rerun()
 
-        # ... (Gardez la zone d'export CSV et de suppression existante) ...
+        # ... (Le reste de la fonction: Totaux, Export CSV, et Suppression) ...
         st.markdown("---")
         
         # Totals et Export CSV
@@ -213,7 +212,6 @@ def ui_historique():
         
         # Suppression
         with st.popover("🗑️ Supprimer des lignes", use_container_width=True):
-            # Création de libellés lisibles pour le multiselect
             labels_del = {}
             for _, row in df.iterrows():
                 rid = row["ID"]
@@ -429,5 +427,6 @@ def ui_gestion():
                         st.rerun()
         with c2:
             st.dataframe(db.load_all_providers(), use_container_width=True, hide_index=True)
+
 
 
