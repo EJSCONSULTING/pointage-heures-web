@@ -179,13 +179,13 @@ def ui_historique():
             selection_mode="single" # Permet de sélectionner une seule ligne
         )
         
-        # Logique pour la sélection (qui remplace le clic sur le bouton)
-        # --- CORRECTION APPLIQUÉE ICI ---
-        selection_info = selected_data.get("selection") if selected_data else None
+        # Logique pour la sélection :
+        # selected_data est toujours un dictionnaire avec la clé 'selection'
+        # 'rows' est la liste des index sélectionnés (vide si aucune sélection)
         
-        if selection_info and selection_info.get("rows"):
-            # On prend l'ID de la ligne sélectionnée (le premier élément de la liste des lignes sélectionnées)
-            selected_row_index = selection_info["rows"][0]
+        if "selection" in selected_data and selected_data["selection"]["rows"]:
+            # On prend l'ID de la ligne sélectionnée
+            selected_row_index = selected_data["selection"]["rows"][0]
             selected_id = df.iloc[selected_row_index]["ID"]
             
             # On active le mode édition avec l'ID
@@ -432,6 +432,7 @@ def ui_gestion():
                         st.rerun()
         with c2:
             st.dataframe(db.load_all_providers(), use_container_width=True, hide_index=True)
+
 
 
 
